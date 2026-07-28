@@ -1,0 +1,12 @@
+.env
+*.env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+frontend/node_modules/
+frontend/dist/
+.pnpm-store/
+.tmp/
+*.mp4
+.DS_Store

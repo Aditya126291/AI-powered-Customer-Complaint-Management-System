@@ -1,0 +1,9 @@
+{
+  "name": "aivoa-complaint-management-system",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --dir frontend dev",
+    "dev:api": "python -m uvicorn app.main:app --reload --app-dir backend",
+    "build": "pnpm --dir frontend build"
+  }
+}

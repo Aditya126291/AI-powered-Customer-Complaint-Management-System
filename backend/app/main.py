@@ -319,9 +319,16 @@ async def process_uploaded_document(
 @app.post("/api/complaints/commit")
 def commit_complaint(request: CommitRequest, db: Session = Depends(get_db)):
     form = request.form
-    count = db.query(ComplaintRecord).count() + 1
+
+    # Guarantee unique complaint_number generation regardless of prior record deletions
+    max_record = db.query(ComplaintRecord).order_by(ComplaintRecord.id.desc()).first()
+    next_id = (max_record.id + 1) if max_record else 1
     year = datetime.datetime.now().year
-    complaint_num = f"CC-{year}-{count:04d}"
+    complaint_num = f"CC-{year}-{next_id:04d}"
+
+    while db.query(ComplaintRecord).filter(ComplaintRecord.complaint_number == complaint_num).first():
+        next_id += 1
+        complaint_num = f"CC-{year}-{next_id:04d}"
 
     record = ComplaintRecord(
         complaint_number=complaint_num,

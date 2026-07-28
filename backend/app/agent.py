@@ -1,4 +1,4 @@
-"""LangGraph workflow for safe, structured complaint intake with CAPA Recommendations & AI Risk Assessment."""
+"""LangGraph workflow for safe, structured complaint intake with Automatic Defect Summary Synthesis, CAPA Recommendations & AI Risk Assessment."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ def _generate_default_capa(defect_text: str) -> tuple[str, list[str]]:
                 "Preventive Action: Review desiccant packaging specifications and ambient storage temperature controls."
             ]
         )
-    elif any(k in lowered for k in ("foreign", "particle", "particle", "contaminat")):
+    elif any(k in lowered for k in ("foreign", "particle", "contaminat")):
         return (
             "Possible environmental or packaging material particulate contamination during filling.",
             [
@@ -126,6 +126,29 @@ def _generate_default_capa(defect_text: str) -> tuple[str, list[str]]:
         )
 
 
+def _synthesize_formal_defect_summary(text: str, patch: dict[str, str], current_form: dict[str, str]) -> str:
+    merged = current_form | patch
+    product = merged.get("productName") or "Pharmaceutical product"
+    batch = merged.get("batchLotNumber")
+    batch_str = f" (Batch {batch})" if batch else ""
+    customer = merged.get("customerName")
+    cust_str = f" reported by {customer}" if customer else ""
+
+    lowered = text.lower()
+    if "discolor" in lowered:
+        defect_desc = "discolored units observed within primary packaging, indicating potential active ingredient degradation or moisture ingress"
+    elif any(k in lowered for k in ("foreign", "particle", "contaminat")):
+        defect_desc = "foreign particle contamination observed within bulk material, representing a potential critical quality defect"
+    elif any(k in lowered for k in ("leak", "seal", "bottle", "cap", "torque")):
+        defect_desc = "container closure integrity failure resulting in liquid leakage and loose cap torque"
+    elif any(k in lowered for k in ("broken", "chip")):
+        defect_desc = "physical breakage and tablet integrity failure observed during receipt inspection"
+    else:
+        defect_desc = "quality deviation and specification non-conformance reported during incoming inspection"
+
+    return f"Formal QMS Quality Complaint{cust_str} regarding {product}{batch_str}. Investigation confirmed {defect_desc}. Immediate QA quarantine, batch holding, and laboratory analysis initiated."
+
+
 def _map_updates_to_form_fields(raw_updates: dict[str, str]) -> dict[str, str]:
     patch = {}
     for key, value in raw_updates.items():
@@ -138,12 +161,18 @@ def _map_updates_to_form_fields(raw_updates: dict[str, str]) -> dict[str, str]:
 
 
 def extract_fields(state: IntakeState) -> dict[str, Any]:
+    current_form = state.get("current_form", {})
+    user_text = state.get("text", "")
+
     if not os.getenv("GROQ_API_KEY"):
-        patch = _deterministic_extract(state["text"])
-        root_cause, capaS = _generate_default_capa(state["text"])
+        patch = _deterministic_extract(user_text)
+        if not patch.get("defectSummary") or len(patch.get("defectSummary", "")) < 20:
+            patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
+
+        root_cause, capaS = _generate_default_capa(user_text)
         return {
             "patch": patch,
-            "intent": "update" if state["current_form"] else "create",
+            "intent": "update" if current_form else "create",
             "summary": "Local structured extraction applied.",
             "root_cause": root_cause,
             "capa_recommendations": capaS,
@@ -152,7 +181,13 @@ def extract_fields(state: IntakeState) -> dict[str, Any]:
     from langchain_groq import ChatGroq
 
     prompt = """You extract pharmaceutical customer-complaint details into a controlled QMS form.
-Return only fields explicitly present in the user's latest message. For a correction or update, return intent as "update" and only the changed fields.
+Return only fields explicitly present or inferred from the user's latest message. For a correction or update, return intent as "update" and only the changed fields.
+
+CRITICAL DEFECT SUMMARY SYNTHESIS RULE:
+If "defectSummary" is not explicitly dictated word-for-word by the user as a full formal report, you MUST synthesize a formal 2-3 sentence QMS Defect Summary for "defectSummary" describing:
+- The product name and batch number
+- The observed physical/chemical/packaging defect
+- The quality assurance impact requiring investigation.
 
 Also recommend:
 1. "risk": A high-level risk assessment statement (e.g. "Critical - foreign particle contamination requiring QA quarantine").
@@ -163,7 +198,7 @@ Valid form field keys MUST be chosen strictly from:
 customerName, complaintSource, productName, strengthGrade, batchLotNumber, manufacturingDate, expiryDate, affectedQuantity, originatingSite, impactedMaterial, complaintType, complaintDate, defectSummary, detailedDescription, severity, priority.
 
 Current form: {current_form}
-User message: {text}""".format(current_form=state["current_form"], text=state["text"])
+User message: {text}""".format(current_form=current_form, text=user_text)
 
     model_names_to_try = [
         os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
@@ -181,14 +216,26 @@ User message: {text}""".format(current_form=state["current_form"], text=state["t
             result = model.with_structured_output(StructuredExtraction).invoke(prompt)
             patch = _map_updates_to_form_fields(result.updates)
 
-            if not patch:
-                patch = _deterministic_extract(state["text"])
+            # Always merge deterministic high-precision regex extraction for complete coverage
+            det_patch = _deterministic_extract(user_text)
+            for k, v in det_patch.items():
+                if v and not patch.get(k):
+                    patch[k] = v
+
+            # Synthesize formal defect summary if missing or brief
+            existing_defect = patch.get("defectSummary") or current_form.get("defectSummary")
+            if not existing_defect or len(existing_defect) < 20:
+                patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
+
+            # Set detailedDescription to full narrative if missing
+            if not patch.get("detailedDescription") and not current_form.get("detailedDescription"):
+                patch["detailedDescription"] = user_text
 
             root_cause = result.root_cause_hypothesis
             capaS = result.capa_recommendations
 
             if not root_cause or not capaS:
-                fallback_rc, fallback_capas = _generate_default_capa(state["text"])
+                fallback_rc, fallback_capas = _generate_default_capa(user_text)
                 root_cause = root_cause or fallback_rc
                 capaS = capaS or fallback_capas
 
@@ -204,11 +251,14 @@ User message: {text}""".format(current_form=state["current_form"], text=state["t
         except Exception as e:
             last_exception = e
 
-    patch = _deterministic_extract(state["text"])
-    rc, capaS = _generate_default_capa(state["text"])
+    patch = _deterministic_extract(user_text)
+    if not patch.get("defectSummary") or len(patch.get("defectSummary", "")) < 20:
+        patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
+
+    rc, capaS = _generate_default_capa(user_text)
     return {
         "patch": patch,
-        "intent": "update" if state["current_form"] else "create",
+        "intent": "update" if current_form else "create",
         "summary": f"Fallback extraction applied (API note: {str(last_exception)})",
         "root_cause": rc,
         "capa_recommendations": capaS,

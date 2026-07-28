@@ -68,7 +68,6 @@ class CopilotResponse(BaseModel):
     capaRecommendations: list[str] = Field(default_factory=list)
 
 
-
 class UploadedDocumentResponse(CopilotResponse):
     sourceFile: str
     extractedCharacters: int
@@ -77,44 +76,101 @@ class UploadedDocumentResponse(CopilotResponse):
 
 def first_match(pattern: str, text: str, flags: int = re.IGNORECASE) -> str | None:
     match = re.search(pattern, text, flags)
-    return match.group(1).strip(" .,") if match else None
+    return match.group(1).strip(" .,\r\n") if match else None
 
 
 def extract_patch(text: str) -> dict[str, str]:
-    """Deterministic mock extractor used until the LangGraph agent is added."""
+    """High-precision pharmaceutical QMS entity extractor for document tables and free-text."""
     patch: dict[str, str] = {}
-    product = first_match(r"\bin\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup)(?:\s+\d+\s*(?:mg|ml))?)\b", text)
-    product = product or first_match(r"(?:product(?: name)? is|for)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup)(?:\s+\d+\s*(?:mg|ml))?)\b", text)
-    if product:
-        strength = first_match(r"(\d+\s*(?:mg|ml))", product)
-        patch["productName"] = product
-        if strength:
-            patch["strengthGrade"] = strength
-    batch = first_match(r"(?:batch|lot)(?:\s+(?:number|no\.?))?\s*(?:is|:|to)?\s*(?!number\b)([A-Za-z0-9-]{4,})", text)
-    if batch:
-        patch["batchLotNumber"] = batch
-    quantity = first_match(r"(?:affected\s+quantity|quantity)\s*(?:is|:)?\s*(\d+(?:\.\d+)?\s*(?:capsules|tablets|vials|kg|g|units?))", text)
-    if quantity:
-        patch["affectedQuantity"] = quantity
-    mfg = first_match(r"manufactur(?:ing|ed)\s+date\s*(?:is|:)?\s*([A-Za-z]+\s+\d{4})", text)
-    expiry = first_match(r"expir(?:y|ation)\s+date\s*(?:is|:)?\s*([A-Za-z]+\s+\d{4})", text)
-    if mfg:
-        patch["manufacturingDate"] = mfg
-    if expiry:
-        patch["expiryDate"] = expiry
-    customer = first_match(r"^([A-Z][A-Za-z &.-]+?)\s+(?:reported|complained)", text)
-    if customer:
-        patch["customerName"] = customer
-        patch["complaintSource"] = customer
-    defect = first_match(r"(?:reported|complained (?:of|about)|defect(?: is)?|issue(?: is)?)\s+(.+)", text)
-    if defect:
-        patch["defectSummary"] = defect
+
+    kv_patterns = {
+        "customerName": [
+            r"Customer\s*Name\s*:\s*\n?\s*([^\n\r|]+)",
+            r"Customer\s*:\s*\n?\s*([^\n\r|]+)",
+            r"Client\s*:\s*\n?\s*([^\n\r|]+)",
+            r"^([A-Z][A-Za-z &.-]+?)\s+(?:reported|complained)",
+        ],
+        "complaintSource": [
+            r"Complaint\s*Source\s*:\s*\n?\s*([^\n\r]+)",
+            r"Source\s*:\s*\n?\s*([^\n\r]+)",
+        ],
+        "productName": [
+            r"Product\s*Name(?:\s*\(API\/FDF\))?\s*:\s*\n?\s*([^\n\r]+)",
+            r"Product\s*:\s*\n?\s*([^\n\r]+)",
+            r"\bin\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api)(?:\s+\d+\s*(?:mg|ml))?)\b",
+            r"(?:product(?: name)? is|for)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api)(?:\s+\d+\s*(?:mg|ml))?)\b",
+        ],
+        "strengthGrade": [
+            r"Product\s*Strength(?:\s*\/\s*Grade|\s*\/\s*Dosage)?\s*:\s*\n?\s*([^\n\r]+)",
+            r"Strength\s*:\s*\n?\s*([^\n\r]+)",
+            r"(\d+\s*(?:mg|ml)(?:\s*\/\s*\d+\s*ml)?)",
+        ],
+        "batchLotNumber": [
+            r"Batch\s*(?:\/\s*Lot)?\s*(?:Number|No\.?)?\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:batch|lot)\s*(?:number|no\.?)?\s*(?:is|:)?\s*([A-Za-z0-9-]{4,})",
+        ],
+        "manufacturingDate": [
+            r"Manufactur(?:ing|ed)\s*Date\s*:\s*\n?\s*([^\n\r]+)",
+            r"mfg\s*date\s*:\s*\n?\s*([^\n\r]+)",
+            r"manufactur(?:ing|ed)\s+date\s*(?:is|:)?\s*([A-Za-z0-9, -]+\d{4})",
+        ],
+        "expiryDate": [
+            r"Expir(?:y|ation)\s*Date\s*:\s*\n?\s*([^\n\r]+)",
+            r"exp\s*date\s*:\s*\n?\s*([^\n\r]+)",
+            r"expir(?:y|ation)\s+date\s*(?:is|:)?\s*([A-Za-z0-9, -]+\d{4}|Not Provided)",
+        ],
+        "affectedQuantity": [
+            r"Affected\s*Quantity\s*:\s*\n?\s*([^\n\r]+)",
+            r"Quantity\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:affected\s+quantity|quantity)\s*(?:is|:)?\s*(\d+(?:\.\d+)?\s*(?:capsules|tablets|vials|kg|g|units?|bottles[^\n\r]*))",
+        ],
+        "originatingSite": [
+            r"Originating\s*Site(?:\s*Block)?\s*:\s*\n?\s*([^\n\r]+)",
+            r"Site\s*:\s*\n?\s*([^\n\r]+)",
+        ],
+        "impactedMaterial": [
+            r"Impacted\s*(?:Non-Product\s*)?Material[s]?\s*:\s*\n?\s*([^\n\r]+)",
+        ],
+        "complaintType": [
+            r"Complaint\s*Type\s*:\s*\n?\s*([^\n\r]+)",
+        ],
+        "complaintDate": [
+            r"Complaint\s*Date\s*:\s*\n?\s*([^\n\r]+)",
+            r"Date\s*of\s*Incident\s*:\s*\n?\s*([^\n\r]+)",
+        ],
+    }
+
+    for field, patterns in kv_patterns.items():
+        for pat in patterns:
+            match = re.search(pat, text, re.IGNORECASE | re.MULTILINE)
+            if match:
+                val = match.group(1).strip(" .,\r\n")
+                if "|" in val:
+                    val = val.split("|")[0].strip()
+                if val and val.lower() not in ("not provided", "none", "n/a", "null"):
+                    patch[field] = val
+                    break
+
+    defect_match = re.search(
+        r"(?:Defect\s*Summary|Description\s*of\s*Complaint|Incident\s*Details|Defect\s*Summary\s*&\s*Narrative|Defect)\s*:\s*\n?\s*([^\n\r]+)",
+        text,
+        re.IGNORECASE,
+    )
+    if defect_match:
+        patch["defectSummary"] = defect_match.group(1).strip(" .,\r\n")
+
+    if not patch.get("detailedDescription"):
         patch["detailedDescription"] = text.strip()
+
     lowered = text.lower()
-    if any(term in lowered for term in ("discolor", "foreign particle", "broken", "leak", "contamination")):
-        patch["complaintType"] = "Product defect"
-        patch["severity"] = "High" if any(term in lowered for term in ("contamination", "foreign particle")) else "Medium"
-        patch["priority"] = "High"
+    if any(term in lowered for term in ("discolor", "foreign particle", "broken", "leak", "contamination", "syrup", "capsule")):
+        if not patch.get("complaintType"):
+            patch["complaintType"] = "Product defect"
+        if not patch.get("severity"):
+            patch["severity"] = "Critical" if any(term in lowered for term in ("contamination", "critical", "foreign particle")) else "High"
+        if not patch.get("priority"):
+            patch["priority"] = "High"
+
     return patch
 
 
@@ -142,7 +198,6 @@ def _extract_email_text(data: bytes) -> str:
 
 
 def extract_uploaded_document(filename: str, data: bytes) -> tuple[str, bool]:
-    """Extract readable text only; OCR/image parsing is intentionally out of MVP scope."""
     extension = Path(filename).suffix.lower()
     if extension not in SUPPORTED_UPLOAD_EXTENSIONS:
         allowed = ", ".join(sorted(SUPPORTED_UPLOAD_EXTENSIONS))
@@ -212,7 +267,9 @@ async def process_uploaded_document(
     extracted_text, was_truncated = extract_uploaded_document(file.filename, data)
     from .agent import run_intake
 
-    result = run_intake(extracted_text, form.model_dump())
+    # Clear current form for fresh document intake so old document fields don't bleed into new document
+    result = run_intake(extracted_text, {})
+
     return UploadedDocumentResponse(
         message=result["summary"],
         patch=result.get("patch", {}),

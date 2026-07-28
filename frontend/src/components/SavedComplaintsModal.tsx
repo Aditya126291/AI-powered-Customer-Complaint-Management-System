@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useAppDispatch } from '../app/hooks';
+import { loadSavedComplaintForEditing } from '../features/complaint/complaintSlice';
 import { deleteSavedComplaint, fetchSavedComplaints, type SavedComplaintRecord } from '../features/copilot/api';
+import { addMessage, resetChat } from '../features/copilot/copilotSlice';
 
 interface Props {
   isOpen: boolean;
@@ -7,6 +10,7 @@ interface Props {
 }
 
 export function SavedComplaintsModal({ isOpen, onClose }: Props) {
+  const dispatch = useAppDispatch();
   const [records, setRecords] = useState<SavedComplaintRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<SavedComplaintRecord | null>(null);
@@ -16,6 +20,9 @@ export function SavedComplaintsModal({ isOpen, onClose }: Props) {
     try {
       const data = await fetchSavedComplaints();
       setRecords(data);
+      if (data.length > 0 && !selected) {
+        setSelected(data[0]);
+      }
     } catch {
       // Ignore error for fallback
     } finally {
@@ -37,6 +44,19 @@ export function SavedComplaintsModal({ isOpen, onClose }: Props) {
     } catch {
       // Ignore
     }
+  };
+
+  const handleEditRecord = (record: SavedComplaintRecord) => {
+    dispatch(loadSavedComplaintForEditing(record));
+    dispatch(resetChat());
+    dispatch(
+      addMessage({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        text: `📂 Loaded saved complaint ${record.complaintNumber} for editing.\n\nForm fields have been pre-filled with all previous details. Any updates will automatically sync to the database record until you click "File another complaint".`,
+      })
+    );
+    onClose();
   };
 
   if (!isOpen) return null;
@@ -71,7 +91,9 @@ export function SavedComplaintsModal({ isOpen, onClose }: Props) {
                   >
                     <div className="record-top">
                       <span className="rec-num">{r.complaintNumber}</span>
-                      <span className={`severity-badge ${r.severity.toLowerCase()}`}>{r.severity || 'Normal'}</span>
+                      <span className={`severity-badge ${r.severity ? r.severity.toLowerCase() : 'medium'}`}>
+                        {r.severity || 'Normal'}
+                      </span>
                     </div>
                     <strong className="rec-product">{r.productName || 'Unspecified Product'}</strong>
                     <div className="rec-sub">
@@ -86,24 +108,36 @@ export function SavedComplaintsModal({ isOpen, onClose }: Props) {
                 {selected ? (
                   <div className="details-card">
                     <div className="details-header">
-                      <h3>{selected.complaintNumber}</h3>
-                      <button className="delete-btn" onClick={() => handleDelete(selected.id)}>Delete Record</button>
+                      <div>
+                        <h3>{selected.complaintNumber}</h3>
+                        <span className="details-date">Date: {selected.complaintDate || 'N/A'}</span>
+                      </div>
+                      <div className="details-header-actions">
+                        <button className="edit-record-btn" onClick={() => handleEditRecord(selected)}>
+                          ✏️ Edit Record
+                        </button>
+                        <button className="delete-btn" onClick={() => handleDelete(selected.id)}>
+                          Delete
+                        </button>
+                      </div>
                     </div>
+
                     <table className="details-table">
                       <tbody>
-                        <tr><td>Customer:</td><td>{selected.customerName || '-'}</td></tr>
-                        <tr><td>Source:</td><td>{selected.complaintSource || '-'}</td></tr>
-                        <tr><td>Product:</td><td>{selected.productName || '-'}</td></tr>
-                        <tr><td>Strength/Grade:</td><td>{selected.strengthGrade || '-'}</td></tr>
-                        <tr><td>Batch/Lot:</td><td>{selected.batchLotNumber || '-'}</td></tr>
+                        <tr><td>Customer Name:</td><td>{selected.customerName || '-'}</td></tr>
+                        <tr><td>Complaint Source:</td><td>{selected.complaintSource || '-'}</td></tr>
+                        <tr><td>Product Name:</td><td>{selected.productName || '-'}</td></tr>
+                        <tr><td>Strength / Grade:</td><td>{selected.strengthGrade || '-'}</td></tr>
+                        <tr><td>Batch / Lot No:</td><td>{selected.batchLotNumber || '-'}</td></tr>
                         <tr><td>Mfg Date:</td><td>{selected.manufacturingDate || '-'}</td></tr>
                         <tr><td>Expiry Date:</td><td>{selected.expiryDate || '-'}</td></tr>
-                        <tr><td>Quantity:</td><td>{selected.affectedQuantity || '-'}</td></tr>
-                        <tr><td>Site/Block:</td><td>{selected.originatingSite || '-'}</td></tr>
-                        <tr><td>Defect Type:</td><td>{selected.complaintType || '-'}</td></tr>
+                        <tr><td>Affected Quantity:</td><td>{selected.affectedQuantity || '-'}</td></tr>
+                        <tr><td>Originating Site:</td><td>{selected.originatingSite || '-'}</td></tr>
+                        <tr><td>Impacted Material:</td><td>{selected.impactedMaterial || '-'}</td></tr>
+                        <tr><td>Complaint Type:</td><td>{selected.complaintType || '-'}</td></tr>
                         <tr><td>Defect Summary:</td><td>{selected.defectSummary || '-'}</td></tr>
                         <tr><td>Risk Assessment:</td><td>{selected.riskAssessment || '-'}</td></tr>
-                        <tr><td>Status:</td><td><span className="status-tag">{selected.status}</span></td></tr>
+                        <tr><td>Record Status:</td><td><span className="status-tag">{selected.status}</span></td></tr>
                       </tbody>
                     </table>
                   </div>

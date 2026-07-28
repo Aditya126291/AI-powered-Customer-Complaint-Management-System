@@ -56,9 +56,13 @@ input, select, textarea { border: 1px solid #d8dfeb; border-radius: 8px; padding
 .rec-sub { display: flex; flex-direction: column; gap: 2px; font-size: 11px; color: #64748b; margin-top: 4px; }
 .record-details { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 20px; overflow-y: auto; max-height: 480px; }
 .details-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; }
-.details-header h3 { margin: 0; color: #1e293b; }
-.delete-btn { background: #ef4444; color: white; border: 0; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
-.delete-btn:hover { background: #dc2626; }
+.details-header h3 { margin: 0; color: #1e293b; font-size: 18px; }
+.details-date { font-size: 11px; color: #64748b; font-weight: 500; }
+.details-header-actions { display: flex; align-items: center; gap: 8px; }
+.edit-record-btn { background: #4f46e5; color: white; border: 0; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600; transition: background 0.15s; }
+.edit-record-btn:hover { background: #4338ca; }
+.delete-btn { background: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; transition: background 0.15s; }
+.delete-btn:hover { background: #fca5a5; color: #7f1d1d; }
 .details-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .details-table td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
 .details-table td:first-child { font-weight: 600; color: #475569; width: 140px; }

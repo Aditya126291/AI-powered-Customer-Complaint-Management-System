@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { SavedComplaintRecord } from '../copilot/api';
 import { emptyComplaint, type ComplaintForm } from './types';
 
 interface ComplaintState {
@@ -41,8 +42,34 @@ const complaintSlice = createSlice({
       state.activeSavedDbId = action.payload.id;
       state.lastSavedNumber = action.payload.complaintNumber;
     },
+    loadSavedComplaintForEditing(state, action: PayloadAction<SavedComplaintRecord>) {
+      const r = action.payload;
+      state.form = {
+        customerName: r.customerName || '',
+        complaintSource: r.complaintSource || '',
+        productName: r.productName || '',
+        strengthGrade: r.strengthGrade || '',
+        batchLotNumber: r.batchLotNumber || '',
+        manufacturingDate: r.manufacturingDate || '',
+        expiryDate: r.expiryDate || '',
+        affectedQuantity: r.affectedQuantity || '',
+        originatingSite: r.originatingSite || '',
+        impactedMaterial: r.impactedMaterial || '',
+        complaintType: r.complaintType || '',
+        complaintDate: r.complaintDate || '',
+        defectSummary: r.defectSummary || '',
+        detailedDescription: r.detailedDescription || '',
+        severity: r.severity || '',
+        priority: r.priority || '',
+        riskAssessment: r.riskAssessment || '',
+      };
+      state.status = 'Saved';
+      state.activeSavedDbId = r.id;
+      state.lastSavedNumber = r.complaintNumber;
+      state.changedFields = [];
+    },
   },
 });
 
-export const { updateField, applyPatch, resetForm, markSaved } = complaintSlice.actions;
+export const { updateField, applyPatch, resetForm, markSaved, loadSavedComplaintForEditing } = complaintSlice.actions;
 export default complaintSlice.reducer;

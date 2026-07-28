@@ -37,7 +37,7 @@ export interface SavedComplaintRecord {
 async function readResponse<T>(response: Response): Promise<T> {
   if (response.ok) return response.json() as Promise<T>;
   const body = await response.json().catch(() => null) as { detail?: string } | null;
-  throw new Error(body?.detail ?? 'The AI service could not process that request.');
+  throw new Error(body?.detail ?? `Server request failed (${response.status}). Please check backend connection.`);
 }
 
 export async function processComplaint(text: string, currentForm: ComplaintForm): Promise<AiResponse> {

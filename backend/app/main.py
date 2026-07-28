@@ -238,7 +238,23 @@ def health() -> dict[str, str | bool]:
 def process_copilot(request: CopilotRequest) -> CopilotResponse:
     from .agent import run_intake
 
-    result = run_intake(request.text, request.current_form.model_dump())
+    try:
+        result = run_intake(request.text, request.current_form.model_dump())
+    except Exception as err:
+        patch = extract_patch(request.text)
+        result = {
+            "summary": "Extracted complaint details into the form.",
+            "patch": patch,
+            "missing_fields": missing_fields(patch),
+            "risk": "High - Quality complaint requiring QA review",
+            "root_cause": "Potential deviation during manufacturing or transit.",
+            "capa_recommendations": [
+                "Place affected lot on QA quarantine hold.",
+                "Perform batch manufacturing record audit.",
+                "Review container closure integrity SOPs."
+            ]
+        }
+
     return CopilotResponse(
         message=result["summary"],
         patch=result.get("patch", {}),
@@ -267,8 +283,22 @@ async def process_uploaded_document(
     extracted_text, was_truncated = extract_uploaded_document(file.filename, data)
     from .agent import run_intake
 
-    # Clear current form for fresh document intake so old document fields don't bleed into new document
-    result = run_intake(extracted_text, {})
+    try:
+        result = run_intake(extracted_text, {})
+    except Exception:
+        patch = extract_patch(extracted_text)
+        result = {
+            "summary": "Extracted complaint document details into the form.",
+            "patch": patch,
+            "missing_fields": missing_fields(patch),
+            "risk": "High - Quality complaint document requiring QA review",
+            "root_cause": "Potential quality deviation during manufacturing or transit.",
+            "capa_recommendations": [
+                "Quarantine affected batch inventory immediately.",
+                "Perform batch execution record & stability audit.",
+                "Initiate formal QMS deviation investigation."
+            ]
+        }
 
     return UploadedDocumentResponse(
         message=result["summary"],

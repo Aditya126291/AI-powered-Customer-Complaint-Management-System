@@ -1,0 +1,22 @@
+CUSTOMER COMPLAINT INTAKE FORM
+
+Customer Name: Apollo Pharmacy
+Complaint Source: Retail Pharmacy Outlet
+Date of Incident: 28 July 2026
+
+PRODUCT & BATCH INFORMATION:
+Product Name: Amoxicillin Capsules
+Product Strength: 500 mg
+Batch / Lot Number: AMX240602
+Manufacturing Date: March 2026
+Expiry Date: February 2028
+Affected Quantity: 48 capsules (4 blister packs)
+
+DESCRIPTION OF COMPLAINT:
+Apollo Pharmacy reported 48 discolored capsules in Amoxicillin Capsules 500 mg (Batch AMX240602) found in a sealed customer box. 
+Capsules showed brownish discoloration instead of normal yellow/white color. 
+Requesting root cause investigation, replacement of batch, and formal QA closure.
+
+REMARKS / INITIAL RISK:
+Suggested Severity: Major
+Initial Risk Assessment: Potential moisture ingress or primary packaging seal failure leading to capsule discoloration.

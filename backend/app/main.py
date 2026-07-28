@@ -320,6 +320,20 @@ async def process_uploaded_document(
 def commit_complaint(request: CommitRequest, db: Session = Depends(get_db)):
     form = request.form
 
+    # Duplicate Complaint Detection: Check if key complaint fields match an existing record
+    if form.productName and form.batchLotNumber:
+        existing_records = db.query(ComplaintRecord).all()
+        for rec in existing_records:
+            same_product = (rec.product_name or "").strip().lower() == form.productName.strip().lower()
+            same_batch = (rec.batch_lot_number or "").strip().lower() == form.batchLotNumber.strip().lower()
+            same_customer = not form.customerName or (rec.customer_name or "").strip().lower() == form.customerName.strip().lower()
+
+            if same_product and same_batch and same_customer:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"⚠️ Duplicate Complaint Detected! This complaint matches existing Record No. {rec.complaint_number} ({rec.product_name}, Batch {rec.batch_lot_number}) in the QMS database. Duplicate submission was blocked."
+                )
+
     # Guarantee unique complaint_number generation regardless of prior record deletions
     max_record = db.query(ComplaintRecord).order_by(ComplaintRecord.id.desc()).first()
     next_id = (max_record.id + 1) if max_record else 1

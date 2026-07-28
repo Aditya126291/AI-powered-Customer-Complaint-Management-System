@@ -1,8 +1,10 @@
-import { type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { resetForm, updateField } from '../features/complaint/complaintSlice';
+import { commitComplaintToDb, fetchSavedComplaints } from '../features/copilot/api';
 import { addMessage, clearCopilotState } from '../features/copilot/copilotSlice';
 import type { ComplaintForm as ComplaintFormType } from '../features/complaint/types';
+import { SavedComplaintsModal } from './SavedComplaintsModal';
 
 type FieldProps = { label: string; field: keyof ComplaintFormType; type?: 'text' | 'date'; placeholder?: string; };
 
@@ -44,8 +46,25 @@ export function ComplaintForm() {
   const dispatch = useAppDispatch();
   const form = useAppSelector((s) => s.complaint.form);
   const status = useAppSelector((s) => s.complaint.status);
+  const risk = useAppSelector((s) => s.copilot.risk);
 
-  const handleSave = () => {
+  const [savedModalOpen, setSavedModalOpen] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
+
+  const refreshCount = async () => {
+    try {
+      const records = await fetchSavedComplaints();
+      setSavedCount(records.length);
+    } catch {
+      // Ignore
+    }
+  };
+
+  useEffect(() => {
+    void refreshCount();
+  }, []);
+
+  const handleSave = async () => {
     const isFormEmpty = Object.values(form).every((v) => !v || v.trim() === '');
     if (isFormEmpty) {
       dispatch(
@@ -58,22 +77,33 @@ export function ComplaintForm() {
       return;
     }
 
-    const productDetails = form.productName
-      ? `${form.productName}${form.batchLotNumber ? ` (Batch: ${form.batchLotNumber})` : ''}`
-      : 'Customer complaint';
+    try {
+      const savedRecord = await commitComplaintToDb(form, risk);
+      void refreshCount();
 
-    // Dispatch acknowledgement message to chat log
-    dispatch(
-      addMessage({
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        text: `✅ ${productDetails} has been successfully committed to the QMS ledger! The form has been reset for new intake.`,
-      })
-    );
+      const productInfo = savedRecord.productName
+        ? `${savedRecord.productName}${savedRecord.batchLotNumber ? ` (Batch: ${savedRecord.batchLotNumber})` : ''}`
+        : 'Customer complaint';
 
-    // Clear copilot risk/missing fields & reset form
-    dispatch(clearCopilotState());
-    dispatch(resetForm());
+      dispatch(
+        addMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber} and committed. Form has been reset.`,
+        })
+      );
+
+      dispatch(clearCopilotState());
+      dispatch(resetForm());
+    } catch (error) {
+      dispatch(
+        addMessage({
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          text: error instanceof Error ? error.message : 'Could not save complaint to database.',
+        })
+      );
+    }
   };
 
   const handleReset = () => {
@@ -95,7 +125,12 @@ export function ComplaintForm() {
           <h1>Log Customer Complaint</h1>
           <p>API & FDF Quality Assurance Module</p>
         </div>
-        <span className="status-pill">{status}</span>
+        <div className="header-actions">
+          <button className="ledger-btn" onClick={() => setSavedModalOpen(true)}>
+            📁 Saved Complaints ({savedCount})
+          </button>
+          <span className="status-pill">{status}</span>
+        </div>
       </header>
 
       <FormSection title="1. Origin & customer details">
@@ -137,8 +172,10 @@ export function ComplaintForm() {
 
       <div className="form-actions">
         <button className="secondary" onClick={handleReset}>↻ Reset form</button>
-        <button className="primary" onClick={handleSave}>▣ Save complaint</button>
+        <button className="primary" onClick={() => void handleSave()}>▣ Save complaint</button>
       </div>
+
+      <SavedComplaintsModal isOpen={savedModalOpen} onClose={() => { setSavedModalOpen(false); void refreshCount(); }} />
     </section>
   );
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import datetime
 from email import policy
 from email.parser import BytesParser
 from io import BytesIO
@@ -8,13 +9,20 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ValidationError
 from pypdf import PdfReader
+from sqlalchemy.orm import Session
 
-app = FastAPI(title="AIVOA Complaint Copilot API", version="0.1.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+from .database import Base, engine, get_db, get_db_type
+from .models import ComplaintRecord
+
+# Create database tables automatically
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="AIVOA Complaint Copilot API", version="0.2.0")
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"], allow_methods=["*"], allow_headers=["*"])
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_EXTRACTED_CHARACTERS = 20_000
@@ -38,6 +46,12 @@ class ComplaintForm(BaseModel):
     detailedDescription: str = ""
     severity: str = ""
     priority: str = ""
+    riskAssessment: str = ""
+
+
+class CommitRequest(BaseModel):
+    form: ComplaintForm
+    risk: str | None = None
 
 
 class CopilotRequest(BaseModel):
@@ -154,7 +168,12 @@ def extract_uploaded_document(filename: str, data: bytes) -> tuple[str, bool]:
 def health() -> dict[str, str | bool]:
     from .agent import configured_model, llm_is_configured
 
-    return {"status": "ok", "llm_configured": llm_is_configured(), "model": configured_model()}
+    return {
+        "status": "ok",
+        "llm_configured": llm_is_configured(),
+        "model": configured_model(),
+        "database": get_db_type(),
+    }
 
 
 @app.post("/api/copilot/process", response_model=CopilotResponse)
@@ -198,3 +217,56 @@ async def process_uploaded_document(
         extractedCharacters=len(extracted_text),
         textTruncated=was_truncated,
     )
+
+
+# -------------------------------------------------------------
+# DATABASE PERSISTENCE ENDPOINTS
+# -------------------------------------------------------------
+@app.post("/api/complaints/commit")
+def commit_complaint(request: CommitRequest, db: Session = Depends(get_db)):
+    form = request.form
+    count = db.query(ComplaintRecord).count() + 1
+    year = datetime.datetime.now().year
+    complaint_num = f"CC-{year}-{count:04d}"
+
+    record = ComplaintRecord(
+        complaint_number=complaint_num,
+        customer_name=form.customerName,
+        complaint_source=form.complaintSource,
+        product_name=form.productName,
+        strength_grade=form.strengthGrade,
+        batch_lot_number=form.batchLotNumber,
+        manufacturing_date=form.manufacturingDate,
+        expiry_date=form.expiryDate,
+        affected_quantity=form.affectedQuantity,
+        originating_site=form.originatingSite,
+        impacted_material=form.impactedMaterial,
+        complaint_type=form.complaintType,
+        complaint_date=form.complaintDate or datetime.date.today().strftime("%d %B %Y"),
+        defect_summary=form.defectSummary,
+        detailed_description=form.detailedDescription,
+        severity=form.severity or "Medium",
+        priority=form.priority or "Medium",
+        risk_assessment=request.risk or form.riskAssessment or "",
+        status="Committed",
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record.to_dict()
+
+
+@app.get("/api/complaints")
+def list_complaints(db: Session = Depends(get_db)):
+    records = db.query(ComplaintRecord).order_by(ComplaintRecord.created_at.desc()).all()
+    return [r.to_dict() for r in records]
+
+
+@app.delete("/api/complaints/{complaint_id}")
+def delete_complaint(complaint_id: int, db: Session = Depends(get_db)):
+    record = db.query(ComplaintRecord).filter(ComplaintRecord.id == complaint_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    db.delete(record)
+    db.commit()
+    return {"status": "success", "message": f"Complaint {complaint_id} deleted"}

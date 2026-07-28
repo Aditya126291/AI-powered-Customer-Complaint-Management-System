@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { markSaved, resetForm, updateField } from '../features/complaint/complaintSlice';
-import { commitComplaintToDb, fetchSavedComplaints } from '../features/copilot/api';
+import { commitComplaintToDb, fetchSavedComplaints, updateSavedComplaintInDb } from '../features/copilot/api';
 import { addMessage, clearCopilotState } from '../features/copilot/copilotSlice';
 import type { ComplaintForm as ComplaintFormType } from '../features/complaint/types';
 import { SavedComplaintsModal } from './SavedComplaintsModal';
@@ -46,6 +46,8 @@ export function ComplaintForm() {
   const dispatch = useAppDispatch();
   const form = useAppSelector((s) => s.complaint.form);
   const status = useAppSelector((s) => s.complaint.status);
+  const activeSavedDbId = useAppSelector((s) => s.complaint.activeSavedDbId);
+  const lastSavedNumber = useAppSelector((s) => s.complaint.lastSavedNumber);
   const risk = useAppSelector((s) => s.copilot.risk);
 
   const [savedModalOpen, setSavedModalOpen] = useState(false);
@@ -64,7 +66,19 @@ export function ComplaintForm() {
     void refreshCount();
   }, []);
 
-  const handleSave = async () => {
+  // Auto-sync edits to database if record has already been saved and user is still editing
+  useEffect(() => {
+    if (activeSavedDbId && status === 'Saved') {
+      const timer = setTimeout(() => {
+        void updateSavedComplaintInDb(activeSavedDbId, form, risk).then(() => {
+          void refreshCount();
+        });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [form, activeSavedDbId, status, risk]);
+
+  const handleSaveOrUpdate = async () => {
     const isFormEmpty = Object.values(form).every((v) => !v || v.trim() === '');
     if (isFormEmpty) {
       dispatch(
@@ -78,22 +92,36 @@ export function ComplaintForm() {
     }
 
     try {
-      const savedRecord = await commitComplaintToDb(form, risk);
-      void refreshCount();
+      if (activeSavedDbId) {
+        // Update existing record
+        const updatedRecord = await updateSavedComplaintInDb(activeSavedDbId, form, risk);
+        void refreshCount();
+        dispatch(
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: `📝 Updated Record No. ${updatedRecord.complaintNumber} in Database! Edits reflected in Saved Complaints.`,
+          })
+        );
+      } else {
+        // Commit new record
+        const savedRecord = await commitComplaintToDb(form, risk);
+        void refreshCount();
 
-      const productInfo = savedRecord.productName
-        ? `${savedRecord.productName}${savedRecord.batchLotNumber ? ` (Batch: ${savedRecord.batchLotNumber})` : ''}`
-        : 'Customer complaint';
+        const productInfo = savedRecord.productName
+          ? `${savedRecord.productName}${savedRecord.batchLotNumber ? ` (Batch: ${savedRecord.batchLotNumber})` : ''}`
+          : 'Customer complaint';
 
-      dispatch(markSaved(savedRecord.complaintNumber));
+        dispatch(markSaved({ id: savedRecord.id, complaintNumber: savedRecord.complaintNumber }));
 
-      dispatch(
-        addMessage({
-          id: crypto.randomUUID(),
-          role: 'assistant',
-          text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber} and committed successfully.\n\nYou can now summarize, check risk, or click "File another complaint" below to log a new complaint.`,
-        })
-      );
+        dispatch(
+          addMessage({
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber}.\n\nFurther edits will auto-sync to this record until you click "File another complaint".`,
+          })
+        );
+      }
     } catch (error) {
       dispatch(
         addMessage({
@@ -128,7 +156,9 @@ export function ComplaintForm() {
           <button className="ledger-btn" onClick={() => setSavedModalOpen(true)}>
             📁 Saved Complaints ({savedCount})
           </button>
-          <span className={`status-pill ${status === 'Saved' ? 'status-saved' : ''}`}>{status}</span>
+          <span className={`status-pill ${status === 'Saved' ? 'status-saved' : ''}`}>
+            {status === 'Saved' ? `Saved (${lastSavedNumber})` : status}
+          </span>
         </div>
       </header>
 
@@ -171,8 +201,8 @@ export function ComplaintForm() {
 
       <div className="form-actions">
         <button className="secondary" onClick={handleReset}>↻ Reset form</button>
-        <button className="primary" onClick={() => void handleSave()} disabled={status === 'Saved'}>
-          {status === 'Saved' ? '✓ Complaint Saved' : '▣ Save complaint'}
+        <button className="primary" onClick={() => void handleSaveOrUpdate()}>
+          {status === 'Saved' ? '✓ Update saved complaint' : '▣ Save complaint'}
         </button>
       </div>
 

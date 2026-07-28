@@ -6,6 +6,7 @@ interface ComplaintState {
   status: 'Draft' | 'Pending Triage' | 'Saved';
   changedFields: string[];
   lastSavedNumber: string | null;
+  activeSavedDbId: number | null;
 }
 
 const initialState: ComplaintState = {
@@ -13,6 +14,7 @@ const initialState: ComplaintState = {
   status: 'Pending Triage',
   changedFields: [],
   lastSavedNumber: null,
+  activeSavedDbId: null,
 };
 
 const complaintSlice = createSlice({
@@ -33,10 +35,11 @@ const complaintSlice = createSlice({
       });
     },
     resetForm: () => initialState,
-    markSaved(state, action: PayloadAction<string>) {
+    markSaved(state, action: PayloadAction<{ id: number; complaintNumber: string }>) {
       state.status = 'Saved';
       state.changedFields = [];
-      state.lastSavedNumber = action.payload;
+      state.activeSavedDbId = action.payload.id;
+      state.lastSavedNumber = action.payload.complaintNumber;
     },
   },
 });

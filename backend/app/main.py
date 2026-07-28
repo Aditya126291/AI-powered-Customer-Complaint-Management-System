@@ -357,6 +357,40 @@ def commit_complaint(request: CommitRequest, db: Session = Depends(get_db)):
     return record.to_dict()
 
 
+@app.put("/api/complaints/{complaint_id}")
+def update_complaint(complaint_id: int, request: CommitRequest, db: Session = Depends(get_db)):
+    record = db.query(ComplaintRecord).filter(ComplaintRecord.id == complaint_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Complaint record not found")
+
+    form = request.form
+    record.customer_name = form.customerName
+    record.complaint_source = form.complaintSource
+    record.product_name = form.productName
+    record.strength_grade = form.strengthGrade
+    record.batch_lot_number = form.batchLotNumber
+    record.manufacturing_date = form.manufacturingDate
+    record.expiry_date = form.expiryDate
+    record.affected_quantity = form.affectedQuantity
+    record.originating_site = form.originatingSite
+    record.impacted_material = form.impactedMaterial
+    record.complaint_type = form.complaintType
+    if form.complaintDate:
+        record.complaint_date = form.complaintDate
+    record.defect_summary = form.defectSummary
+    record.detailed_description = form.detailedDescription
+    if form.severity:
+        record.severity = form.severity
+    if form.priority:
+        record.priority = form.priority
+    if request.risk or form.riskAssessment:
+        record.risk_assessment = request.risk or form.riskAssessment
+
+    db.commit()
+    db.refresh(record)
+    return record.to_dict()
+
+
 @app.get("/api/complaints")
 def list_complaints(db: Session = Depends(get_db)):
     records = db.query(ComplaintRecord).order_by(ComplaintRecord.created_at.desc()).all()

@@ -64,6 +64,15 @@ export async function commitComplaintToDb(form: ComplaintForm, risk: string | nu
   return readResponse<SavedComplaintRecord>(response);
 }
 
+export async function updateSavedComplaintInDb(id: number, form: ComplaintForm, risk: string | null): Promise<SavedComplaintRecord> {
+  const response = await fetch(`/api/complaints/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ form, risk }),
+  });
+  return readResponse<SavedComplaintRecord>(response);
+}
+
 export async function fetchSavedComplaints(): Promise<SavedComplaintRecord[]> {
   const response = await fetch('/api/complaints');
   return readResponse<SavedComplaintRecord[]>(response);

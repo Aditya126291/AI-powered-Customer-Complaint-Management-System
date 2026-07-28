@@ -1,6 +1,13 @@
 import type { ComplaintForm } from '../complaint/types';
 
-export interface AiResponse { message: string; patch: Partial<ComplaintForm>; missingFields: string[]; risk: string | null; }
+export interface AiResponse {
+  message: string;
+  patch: Partial<ComplaintForm>;
+  missingFields: string[];
+  risk: string | null;
+  rootCause?: string | null;
+  capaRecommendations?: string[];
+}
 export interface UploadedDocumentResponse extends AiResponse { sourceFile: string; extractedCharacters: number; textTruncated: boolean; }
 
 export interface SavedComplaintRecord {

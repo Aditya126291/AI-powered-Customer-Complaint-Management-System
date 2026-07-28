@@ -64,6 +64,9 @@ class CopilotResponse(BaseModel):
     patch: dict[str, str]
     missingFields: list[str]
     risk: str | None = None
+    rootCause: str | None = None
+    capaRecommendations: list[str] = Field(default_factory=list)
+
 
 
 class UploadedDocumentResponse(CopilotResponse):
@@ -186,6 +189,8 @@ def process_copilot(request: CopilotRequest) -> CopilotResponse:
         patch=result.get("patch", {}),
         missingFields=result.get("missing_fields", []),
         risk=result.get("risk"),
+        rootCause=result.get("root_cause"),
+        capaRecommendations=result.get("capa_recommendations", []),
     )
 
 
@@ -213,6 +218,8 @@ async def process_uploaded_document(
         patch=result.get("patch", {}),
         missingFields=result.get("missing_fields", []),
         risk=result.get("risk"),
+        rootCause=result.get("root_cause"),
+        capaRecommendations=result.get("capa_recommendations", []),
         sourceFile=file.filename,
         extractedCharacters=len(extracted_text),
         textTruncated=was_truncated,

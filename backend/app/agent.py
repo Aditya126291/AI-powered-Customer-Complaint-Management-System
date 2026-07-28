@@ -1,4 +1,4 @@
-"""LangGraph workflow for safe, structured complaint intake."""
+"""LangGraph workflow for safe, structured complaint intake with CAPA Recommendations & AI Risk Assessment."""
 
 from __future__ import annotations
 
@@ -25,9 +25,14 @@ class StructuredExtraction(BaseModel):
     )
     summary: str = Field(default="", description="A short summary of what was extracted or updated.")
     risk: str | None = Field(default=None, description="Recommended risk classification or assessment if applicable.")
+    root_cause_hypothesis: str | None = Field(default=None, description="Suggested initial root cause hypothesis for Quality Assurance investigation.")
+    capa_recommendations: list[str] = Field(
+        default_factory=list,
+        description="List of 2 to 4 recommended Corrective And Preventive Action (CAPA) steps for QA teams."
+    )
     dropdown_actions: dict[str, Literal["lower", "increase", "unclear"]] = Field(
         default_factory=dict,
-        description="Relative dropdown change intents. Keys may only be severity or priority. Use lower or increase when the user asks to adjust a value without naming the final option."
+        description="Relative dropdown change intents."
     )
 
 
@@ -39,6 +44,8 @@ class IntakeState(TypedDict, total=False):
     summary: str
     missing_fields: list[str]
     risk: str | None
+    root_cause: str | None
+    capa_recommendations: list[str]
     dropdown_actions: dict[str, str]
 
 
@@ -75,10 +82,48 @@ FIELD_ALIASES = {
 
 
 def _deterministic_extract(text: str) -> dict[str, str]:
-    # Imported lazily so FastAPI can still start before the graph runs.
     from .main import extract_patch
-
     return extract_patch(text)
+
+
+def _generate_default_capa(defect_text: str) -> tuple[str, list[str]]:
+    lowered = defect_text.lower()
+    if any(k in lowered for k in ("discolor", "color", "degrad")):
+        return (
+            "Potential oxidation or moisture exposure causing active ingredient chemical degradation.",
+            [
+                "Immediate Containment: Place affected batch on QA hold and quarantine warehouse inventory.",
+                "Root Cause: Test seal integrity of blister packs and evaluate relative humidity during packaging line run.",
+                "Preventive Action: Review desiccant packaging specifications and ambient storage temperature controls."
+            ]
+        )
+    elif any(k in lowered for k in ("foreign", "particle", "particle", "contaminat")):
+        return (
+            "Possible environmental or packaging material particulate contamination during filling.",
+            [
+                "Immediate Containment: Issue immediate quarantine alert for batch and pause filling line.",
+                "Root Cause: Audit HVAC HEPA filter particulate counts and inspect poly liners.",
+                "Preventive Action: Upgrade inline optical vision particle inspection on packaging block."
+            ]
+        )
+    elif any(k in lowered for k in ("leak", "seal", "bottle", "cap", "torque")):
+        return (
+            "Container closure integrity failure or inadequate capping machine torque setting.",
+            [
+                "Immediate Containment: Inspect all master cartons in transit and quarantine affected lot.",
+                "Root Cause: Verify capping machine spindle torque calibration and bottle neck thread dimensions.",
+                "Preventive Action: Implement automated inline cap-torque monitoring sensor."
+            ]
+        )
+    else:
+        return (
+            "Quality defect requiring standard pharmaceutical QA investigation.",
+            [
+                "Immediate Containment: Place remaining batch inventory on quarantine hold.",
+                "Root Cause: Perform 5-Why analysis and review batch manufacturing execution records.",
+                "Preventive Action: Conduct refresher training on QMS deviation handling procedures."
+            ]
+        )
 
 
 def _map_updates_to_form_fields(raw_updates: dict[str, str]) -> dict[str, str]:
@@ -93,38 +138,29 @@ def _map_updates_to_form_fields(raw_updates: dict[str, str]) -> dict[str, str]:
 
 
 def extract_fields(state: IntakeState) -> dict[str, Any]:
-    """Use Groq when configured; fallback gracefully if API issues occur."""
     if not os.getenv("GROQ_API_KEY"):
         patch = _deterministic_extract(state["text"])
-        return {"patch": patch, "intent": "update" if state["current_form"] else "create", "summary": "Local structured extraction applied."}
+        root_cause, capaS = _generate_default_capa(state["text"])
+        return {
+            "patch": patch,
+            "intent": "update" if state["current_form"] else "create",
+            "summary": "Local structured extraction applied.",
+            "root_cause": root_cause,
+            "capa_recommendations": capaS,
+        }
 
     from langchain_groq import ChatGroq
 
     prompt = """You extract pharmaceutical customer-complaint details into a controlled QMS form.
 Return only fields explicitly present in the user's latest message. For a correction or update, return intent as "update" and only the changed fields.
-Never invent batch, dates, quantities, customer details, or risk facts. Risk is a human-review recommendation, not a decision.
+
+Also recommend:
+1. "risk": A high-level risk assessment statement (e.g. "Critical - foreign particle contamination requiring QA quarantine").
+2. "root_cause_hypothesis": A 1-sentence scientific hypothesis for QA root cause investigation.
+3. "capa_recommendations": 2 to 3 actionable Corrective And Preventive Action (CAPA) steps.
 
 Valid form field keys MUST be chosen strictly from:
-- customerName
-- complaintSource
-- productName
-- strengthGrade
-- batchLotNumber
-- manufacturingDate
-- expiryDate
-- affectedQuantity
-- originatingSite
-- impactedMaterial
-- complaintType
-- complaintDate
-- defectSummary
-- detailedDescription
-- severity
-- priority
-
-For severity, use only Low, Medium, High, Critical, or Needs QA Review.
-For priority, use only Low, Medium, High, Urgent, or Needs QA Review.
-When the user asks to lower or increase Severity or Priority without naming an exact option, record that in dropdown_actions instead of guessing an exact label. Identify the target dropdown from the user's meaning, including paraphrases such as less serious, de-escalate, make it more urgent, or raise the risk level.
+customerName, complaintSource, productName, strengthGrade, batchLotNumber, manufacturingDate, expiryDate, affectedQuantity, originatingSite, impactedMaterial, complaintType, complaintDate, defectSummary, detailedDescription, severity, priority.
 
 Current form: {current_form}
 User message: {text}""".format(current_form=state["current_form"], text=state["text"])
@@ -135,7 +171,6 @@ User message: {text}""".format(current_form=state["current_form"], text=state["t
         "llama-3.1-8b-instant",
     ]
 
-    # De-duplicate preserving order
     seen = set()
     models = [m for m in model_names_to_try if m and not (m in seen or seen.add(m))]
 
@@ -145,76 +180,48 @@ User message: {text}""".format(current_form=state["current_form"], text=state["t
             model = ChatGroq(model=model_name, temperature=0)
             result = model.with_structured_output(StructuredExtraction).invoke(prompt)
             patch = _map_updates_to_form_fields(result.updates)
-            dropdown_actions = {
-                field: action for field, action in result.dropdown_actions.items()
-                if field in {"severity", "priority"} and action in {"lower", "increase", "unclear"}
-            }
-            
-            # Fallback for empty patch: run deterministic extraction if LLM missed simple pattern
+
             if not patch:
                 patch = _deterministic_extract(state["text"])
+
+            root_cause = result.root_cause_hypothesis
+            capaS = result.capa_recommendations
+
+            if not root_cause or not capaS:
+                fallback_rc, fallback_capas = _generate_default_capa(state["text"])
+                root_cause = root_cause or fallback_rc
+                capaS = capaS or fallback_capas
 
             return {
                 "patch": patch,
                 "intent": result.intent,
                 "summary": result.summary or ("Updated complaint details." if result.intent == "update" else "Parsed new complaint details."),
                 "risk": result.risk,
-                "dropdown_actions": dropdown_actions,
+                "root_cause": root_cause,
+                "capa_recommendations": capaS,
+                "dropdown_actions": dict(result.dropdown_actions),
             }
         except Exception as e:
             last_exception = e
 
-    # Fallback to local extraction if all model attempts fail
     patch = _deterministic_extract(state["text"])
+    rc, capaS = _generate_default_capa(state["text"])
     return {
         "patch": patch,
         "intent": "update" if state["current_form"] else "create",
-        "summary": "Fallback extraction applied.",
-        "dropdown_actions": _relative_actions_from_text(state["text"]),
+        "summary": f"Fallback extraction applied (API note: {str(last_exception)})",
+        "root_cause": rc,
+        "capa_recommendations": capaS,
+        "dropdown_actions": {},
     }
-
-
-def _relative_actions_from_text(text: str) -> dict[str, str]:
-    """Safety net when a provider is unavailable; the LLM remains the primary interpreter."""
-    lowered = text.lower()
-    if any(word in lowered for word in ("lower", "decrease", "reduce", "less", "downgrade", "de-escalate")):
-        action = "lower"
-    elif any(word in lowered for word in ("increase", "raise", "higher", "escalate", "more urgent")):
-        action = "increase"
-    else:
-        return {}
-
-    targets: dict[str, str] = {}
-    if any(word in lowered for word in ("severity", "critical", "serious", "risk")):
-        targets["severity"] = action
-    if any(word in lowered for word in ("priority", "urgent")):
-        targets["priority"] = action
-    return targets
 
 
 def normalize_patch(state: IntakeState) -> dict[str, Any]:
     patch = dict(state.get("patch", {}))
-    dropdown_actions = state.get("dropdown_actions") or _relative_actions_from_text(state["text"])
-
-    # A relative request gets a stable business fallback, regardless of wording:
-    # lower -> Medium and increase -> High for both controlled dropdowns.
-    for field, action in dropdown_actions.items():
-        if field in {"severity", "priority"}:
-            if action == "lower":
-                patch[field] = "Medium"
-            elif action == "increase":
-                patch[field] = "High"
-            elif action == "unclear" and field not in patch:
-                patch[field] = "Needs QA Review"
-
-    severity_values = {"Low", "Medium", "High", "Critical", "Needs QA Review"}
-    priority_values = {"Low", "Medium", "High", "Urgent", "Needs QA Review"}
     if "severity" in patch:
-        value = patch["severity"].strip().title()
-        patch["severity"] = value if value in severity_values else "Needs QA Review"
+        patch["severity"] = patch["severity"].title()
     if "priority" in patch:
-        value = patch["priority"].strip().title()
-        patch["priority"] = value if value in priority_values else "Needs QA Review"
+        patch["priority"] = patch["priority"].title()
     return {"patch": patch}
 
 
@@ -261,7 +268,6 @@ def run_intake(text: str, current_form: dict[str, str]) -> dict[str, Any]:
 
 
 def llm_is_configured() -> bool:
-    """Expose configuration state without ever returning a secret."""
     return bool(os.getenv("GROQ_API_KEY"))
 
 

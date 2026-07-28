@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { applyPatch } from '../features/complaint/complaintSlice';
+import { applyPatch, resetForm } from '../features/complaint/complaintSlice';
 import { processComplaint, uploadComplaint, type AiResponse } from '../features/copilot/api';
-import { addMessage, setAiResult, setProcessing } from '../features/copilot/copilotSlice';
+import { addMessage, resetChat, setAiResult, setProcessing } from '../features/copilot/copilotSlice';
 
 export function Copilot() {
   const dispatch = useAppDispatch();
@@ -12,6 +12,10 @@ export function Copilot() {
 
   const { messages, processing, missingFields, risk, rootCause, capaRecommendations } = useAppSelector((s) => s.copilot);
   const form = useAppSelector((s) => s.complaint.form);
+
+  const hasFormContent = Boolean(
+    form.productName || form.customerName || form.batchLotNumber || form.defectSummary || messages.length > 1
+  );
 
   const applyAiResult = (result: AiResponse) => {
     dispatch(applyPatch(result.patch));
@@ -50,6 +54,55 @@ export function Copilot() {
       dispatch(setProcessing(false));
       if (fileInput.current) fileInput.current.value = '';
     }
+  };
+
+  // Quick Action Button Handlers
+  const handleSummarize = () => {
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'user', text: 'Summarize the complaint' }));
+    const summaryText = `📋 COMPLAINT EXECUTIVE SUMMARY:\n` +
+      `• Customer: ${form.customerName || 'Pending identification'}\n` +
+      `• Product: ${form.productName || 'Pharmaceutical Product'} ${form.strengthGrade ? `(${form.strengthGrade})` : ''}\n` +
+      `• Batch Number: ${form.batchLotNumber || 'Not specified'}\n` +
+      `• Affected Quantity: ${form.affectedQuantity || 'Not specified'}\n` +
+      `• Reported Defect: ${form.defectSummary || 'Quality deviation under evaluation'}\n` +
+      `• Initial Triage: ${form.severity || 'Medium'} Severity | ${form.priority || 'High'} Priority`;
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'assistant', text: summaryText }));
+  };
+
+  const handleCapa = () => {
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'user', text: 'CAPA recommendation' }));
+    const capaText = capaRecommendations.length > 0
+      ? `🔧 RECOMMENDED CAPA ACTIONS:\n` + capaRecommendations.map((c, i) => `${i + 1}. ${c}`).join('\n')
+      : `🔧 RECOMMENDED CAPA ACTIONS:\n` +
+        `1. Immediate Containment: Place batch ${form.batchLotNumber || 'inventory'} on QA quarantine hold and halt further dispatch.\n` +
+        `2. Root Cause Audit: Review batch manufacturing execution records, raw material COAs, and environmental cleanroom logs.\n` +
+        `3. Preventive Action: Implement automated inline particle/defect vision inspection and retrain production personnel.`;
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'assistant', text: capaText }));
+  };
+
+  const handleRisk = () => {
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'user', text: 'AI risk classification' }));
+    const riskText = `🛡️ AI RISK CLASSIFICATION:\n` +
+      `• Severity Level: ${form.severity || 'High'}\n` +
+      `• Priority Level: ${form.priority || 'High'}\n` +
+      `• Triage Assessment: ${risk || 'Potential quality deviation requiring mandatory QA containment and investigation.'}`;
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'assistant', text: riskText }));
+  };
+
+  const handleRootCause = () => {
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'user', text: 'Root cause recommendation' }));
+    const rcText = `🔬 ROOT CAUSE RECOMMENDATION:\n` +
+      `• Scientific Hypothesis: ${rootCause || 'Potential container closure integrity failure, raw material degradation, or filling line deviation.'}\n\n` +
+      `• Recommended QA Investigation Plan:\n` +
+      `  1. Inspect primary packaging seals and capping machine spindle torque logs.\n` +
+      `  2. Conduct stability chamber testing on reserve batch samples.\n` +
+      `  3. Audit cleanroom HVAC particulate counts for the manufacturing date run.`;
+    dispatch(addMessage({ id: crypto.randomUUID(), role: 'assistant', text: rcText }));
+  };
+
+  const handleFileAnother = () => {
+    dispatch(resetForm());
+    dispatch(resetChat());
   };
 
   return (
@@ -93,10 +146,33 @@ export function Copilot() {
         ))}
         {processing && (
           <div className="message assistant">
-            <span className="typing">AI is extracting, classifying risk & generating CAPA…</span>
+            <span className="typing">AI is processing complaint details…</span>
           </div>
         )}
       </div>
+
+      {hasFormContent && (
+        <div className="quick-actions-container">
+          <span className="quick-actions-label">⚡ Quick Actions:</span>
+          <div className="quick-actions-grid">
+            <button className="action-pill" onClick={handleSummarize}>
+              📝 Summarize complaint
+            </button>
+            <button className="action-pill" onClick={handleCapa}>
+              🔧 CAPA recommendation
+            </button>
+            <button className="action-pill" onClick={handleRisk}>
+              🛡️ AI risk classification
+            </button>
+            <button className="action-pill" onClick={handleRootCause}>
+              🔬 Root cause recommendation
+            </button>
+            <button className="action-pill action-pill-reset" onClick={handleFileAnother}>
+              🔄 File another complaint
+            </button>
+          </div>
+        </div>
+      )}
 
       {(risk || rootCause || capaRecommendations.length > 0 || missingFields.length > 0) && (
         <div className="insight-panel">

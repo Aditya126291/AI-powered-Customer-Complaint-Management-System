@@ -12,13 +12,19 @@ interface CopilotState {
   capaRecommendations: string[];
 }
 
+const INITIAL_WELCOME: ChatMessage = {
+  id: 'welcome',
+  role: 'assistant',
+  text: 'Ready to process a new complaint. Paste the customer report or drop a document below.',
+};
+
 const initialState: CopilotState = {
   processing: false,
   missingFields: [],
   risk: null,
   rootCause: null,
   capaRecommendations: [],
-  messages: [{ id: 'welcome', role: 'assistant', text: 'Ready to process a new complaint. Paste the customer report or describe the update you want to make.' }],
+  messages: [INITIAL_WELCOME],
 };
 
 const copilotSlice = createSlice({
@@ -52,8 +58,16 @@ const copilotSlice = createSlice({
       state.rootCause = null;
       state.capaRecommendations = [];
     },
+    resetChat(state) {
+      state.messages = [{ id: crypto.randomUUID(), role: 'assistant', text: 'Fresh chat started. Form and copilot context have been reset.' }];
+      state.missingFields = [];
+      state.risk = null;
+      state.rootCause = null;
+      state.capaRecommendations = [];
+      state.processing = false;
+    },
   },
 });
 
-export const { addMessage, setProcessing, setAiResult, clearCopilotState } = copilotSlice.actions;
+export const { addMessage, setProcessing, setAiResult, clearCopilotState, resetChat } = copilotSlice.actions;
 export default copilotSlice.reducer;

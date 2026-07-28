@@ -10,12 +10,15 @@ export function Copilot() {
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const { messages, processing, missingFields, risk, rootCause, capaRecommendations } = useAppSelector((s) => s.copilot);
+  const { messages, processing, risk, rootCause, capaRecommendations } = useAppSelector((s) => s.copilot);
   const form = useAppSelector((s) => s.complaint.form);
+  const status = useAppSelector((s) => s.complaint.status);
 
   const hasFormContent = Boolean(
     form.productName || form.customerName || form.batchLotNumber || form.defectSummary || messages.length > 1
   );
+
+  const isComplaintSaved = status === 'Saved';
 
   const applyAiResult = (result: AiResponse) => {
     dispatch(applyPatch(result.patch));
@@ -56,7 +59,7 @@ export function Copilot() {
     }
   };
 
-  // Quick Action Button Handlers
+  // Interactive Quick Action Pill Handlers
   const handleSummarize = () => {
     dispatch(addMessage({ id: crypto.randomUUID(), role: 'user', text: 'Summarize the complaint' }));
     const summaryText = `📋 COMPLAINT EXECUTIVE SUMMARY:\n` +
@@ -64,7 +67,7 @@ export function Copilot() {
       `• Product: ${form.productName || 'Pharmaceutical Product'} ${form.strengthGrade ? `(${form.strengthGrade})` : ''}\n` +
       `• Batch Number: ${form.batchLotNumber || 'Not specified'}\n` +
       `• Affected Quantity: ${form.affectedQuantity || 'Not specified'}\n` +
-      `• Reported Defect: ${form.defectSummary || 'Quality deviation under evaluation'}\n` +
+      `• Incident Summary: ${form.defectSummary || 'Quality deviation under evaluation'}\n` +
       `• Initial Triage: ${form.severity || 'Medium'} Severity | ${form.priority || 'High'} Priority`;
     dispatch(addMessage({ id: crypto.randomUUID(), role: 'assistant', text: summaryText }));
   };
@@ -153,13 +156,10 @@ export function Copilot() {
 
       {hasFormContent && (
         <div className="quick-actions-container">
-          <span className="quick-actions-label">⚡ Quick Actions:</span>
+          <span className="quick-actions-label">⚡ Select Quick Action:</span>
           <div className="quick-actions-grid">
             <button className="action-pill" onClick={handleSummarize}>
               📝 Summarize complaint
-            </button>
-            <button className="action-pill" onClick={handleCapa}>
-              🔧 CAPA recommendation
             </button>
             <button className="action-pill" onClick={handleRisk}>
               🛡️ AI risk classification
@@ -167,45 +167,16 @@ export function Copilot() {
             <button className="action-pill" onClick={handleRootCause}>
               🔬 Root cause recommendation
             </button>
-            <button className="action-pill action-pill-reset" onClick={handleFileAnother}>
-              🔄 File another complaint
+            <button className="action-pill" onClick={handleCapa}>
+              🔧 CAPA recommendation
             </button>
+
+            {isComplaintSaved && (
+              <button className="action-pill action-pill-reset" onClick={handleFileAnother}>
+                🔄 File another complaint
+              </button>
+            )}
           </div>
-        </div>
-      )}
-
-      {(risk || rootCause || capaRecommendations.length > 0 || missingFields.length > 0) && (
-        <div className="insight-panel">
-          {risk && (
-            <div className="insight-section">
-              <strong>🛡️ AI Risk Classification:</strong>
-              <p>{risk}</p>
-            </div>
-          )}
-
-          {rootCause && (
-            <div className="insight-section">
-              <strong>🔬 Root Cause Hypothesis:</strong>
-              <p>{rootCause}</p>
-            </div>
-          )}
-
-          {capaRecommendations.length > 0 && (
-            <div className="insight-section">
-              <strong>🔧 Recommended CAPA Actions:</strong>
-              <ul className="capa-list">
-                {capaRecommendations.map((step, idx) => (
-                  <li key={idx}>{step}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {missingFields.length > 0 && (
-            <div className="insight-section missing-section">
-              <strong>Still needed:</strong> {missingFields.join(', ')}
-            </div>
-          )}
         </div>
       )}
 

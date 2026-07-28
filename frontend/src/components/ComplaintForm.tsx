@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
-import { resetForm, updateField } from '../features/complaint/complaintSlice';
+import { markSaved, resetForm, updateField } from '../features/complaint/complaintSlice';
 import { commitComplaintToDb, fetchSavedComplaints } from '../features/copilot/api';
 import { addMessage, clearCopilotState } from '../features/copilot/copilotSlice';
 import type { ComplaintForm as ComplaintFormType } from '../features/complaint/types';
@@ -85,16 +85,15 @@ export function ComplaintForm() {
         ? `${savedRecord.productName}${savedRecord.batchLotNumber ? ` (Batch: ${savedRecord.batchLotNumber})` : ''}`
         : 'Customer complaint';
 
+      dispatch(markSaved(savedRecord.complaintNumber));
+
       dispatch(
         addMessage({
           id: crypto.randomUUID(),
           role: 'assistant',
-          text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber} and committed. Form has been reset.`,
+          text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber} and committed successfully.\n\nYou can now summarize, check risk, or click "File another complaint" below to log a new complaint.`,
         })
       );
-
-      dispatch(clearCopilotState());
-      dispatch(resetForm());
     } catch (error) {
       dispatch(
         addMessage({
@@ -129,7 +128,7 @@ export function ComplaintForm() {
           <button className="ledger-btn" onClick={() => setSavedModalOpen(true)}>
             📁 Saved Complaints ({savedCount})
           </button>
-          <span className="status-pill">{status}</span>
+          <span className={`status-pill ${status === 'Saved' ? 'status-saved' : ''}`}>{status}</span>
         </div>
       </header>
 
@@ -172,7 +171,9 @@ export function ComplaintForm() {
 
       <div className="form-actions">
         <button className="secondary" onClick={handleReset}>↻ Reset form</button>
-        <button className="primary" onClick={() => void handleSave()}>▣ Save complaint</button>
+        <button className="primary" onClick={() => void handleSave()} disabled={status === 'Saved'}>
+          {status === 'Saved' ? '✓ Complaint Saved' : '▣ Save complaint'}
+        </button>
       </div>
 
       <SavedComplaintsModal isOpen={savedModalOpen} onClose={() => { setSavedModalOpen(false); void refreshCount(); }} />

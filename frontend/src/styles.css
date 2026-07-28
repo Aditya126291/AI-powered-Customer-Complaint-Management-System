@@ -8,6 +8,7 @@ h1, h2 { margin: 0; letter-spacing: -.03em; } h1 { font-size: 22px; } h2 { font-
 .ledger-btn { background: #f0f3ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 8px; padding: 6px 12px; font-weight: 600; font-size: 12px; transition: background .15s; }
 .ledger-btn:hover { background: #e0e7ff; }
 .status-pill { color: #8c5b00; background: #fff7df; border: 1px solid #f4d58a; border-radius: 999px; padding: 7px 10px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.status-saved { color: #15803d; background: #f0fdf4; border-color: #86efac; }
 fieldset { border: 0; padding: 0; margin: 22px 0 0; } legend { color: #647086; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 0 0 12px; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }.field span { font-size: 12px; font-weight: 600; color: #39465a; }
 input, select, textarea { border: 1px solid #d8dfeb; border-radius: 8px; padding: 10px 11px; color: #27364d; background: #fff; outline: none; width: 100%; transition: border .15s, box-shadow .15s; } input::placeholder, textarea::placeholder { color: #a6afbf; } input:focus, select:focus, textarea:focus { border-color: #5d52e8; box-shadow: 0 0 0 3px rgba(93,82,232,.11); }.ai-updated { border-color: #8e84ff; background: #fbfaff; } textarea { min-height: 86px; resize: vertical; }.field-wide { grid-column: 1 / -1; }

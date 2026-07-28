@@ -1,11 +1,23 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import { emptyComplaint, type ComplaintForm } from './types';
 
-interface ComplaintState { form: ComplaintForm; status: 'Draft' | 'Pending Triage' | 'Saved'; changedFields: string[]; }
-const initialState: ComplaintState = { form: emptyComplaint, status: 'Pending Triage', changedFields: [] };
+interface ComplaintState {
+  form: ComplaintForm;
+  status: 'Draft' | 'Pending Triage' | 'Saved';
+  changedFields: string[];
+  lastSavedNumber: string | null;
+}
+
+const initialState: ComplaintState = {
+  form: emptyComplaint,
+  status: 'Pending Triage',
+  changedFields: [],
+  lastSavedNumber: null,
+};
 
 const complaintSlice = createSlice({
-  name: 'complaint', initialState,
+  name: 'complaint',
+  initialState,
   reducers: {
     updateField(state, action: PayloadAction<{ field: keyof ComplaintForm; value: string }>) {
       const { field, value } = action.payload;
@@ -21,8 +33,13 @@ const complaintSlice = createSlice({
       });
     },
     resetForm: () => initialState,
-    markSaved(state) { state.status = 'Saved'; state.changedFields = []; },
+    markSaved(state, action: PayloadAction<string>) {
+      state.status = 'Saved';
+      state.changedFields = [];
+      state.lastSavedNumber = action.payload;
+    },
   },
 });
+
 export const { updateField, applyPatch, resetForm, markSaved } = complaintSlice.actions;
 export default complaintSlice.reducer;

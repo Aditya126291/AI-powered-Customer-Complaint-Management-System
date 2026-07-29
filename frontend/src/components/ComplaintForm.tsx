@@ -146,9 +146,6 @@ export function ComplaintForm() {
           <button className="ledger-btn" onClick={() => setSavedModalOpen(true)}>
             📁 Saved Complaints ({savedCount})
           </button>
-          <span className={`status-pill ${status === 'Saved' ? 'status-saved' : ''}`}>
-            {status === 'Saved' ? `Editing (${lastSavedNumber})` : status}
-          </span>
         </div>
       </header>
 

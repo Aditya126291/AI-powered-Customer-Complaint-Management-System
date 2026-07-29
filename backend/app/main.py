@@ -79,6 +79,38 @@ def first_match(pattern: str, text: str, flags: int = re.IGNORECASE) -> str | No
     return match.group(1).strip(" .,\r\n") if match else None
 
 
+def normalize_severity(val: str | None, text: str = "") -> str:
+    v = (val or "").strip().lower()
+    t = text.lower()
+    if any(k in v or k in t for k in ("critical", "contamination", "foreign particle", "particle")):
+        return "Critical"
+    if any(k in v or k in t for k in ("high", "discolor", "leak", "broken")):
+        return "High"
+    if "low" in v:
+        return "Low"
+    if "medium" in v:
+        return "Medium"
+    if "needs" in v or "qa" in v:
+        return "Needs QA Review"
+    return "High"
+
+
+def normalize_priority(val: str | None, text: str = "") -> str:
+    v = (val or "").strip().lower()
+    t = text.lower()
+    if any(k in v or k in t for k in ("urgent", "critical", "contamination", "particle")):
+        return "Urgent"
+    if any(k in v or k in t for k in ("high", "discolor", "leak", "broken")):
+        return "High"
+    if "low" in v:
+        return "Low"
+    if "medium" in v:
+        return "Medium"
+    if "needs" in v or "qa" in v:
+        return "Needs QA Review"
+    return "High"
+
+
 def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
     """High-precision pharmaceutical QMS entity extractor for document tables and free-text."""
     patch: dict[str, str] = {}
@@ -200,11 +232,9 @@ def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
         if not patch.get("complaintType"):
             patch["complaintType"] = "Product defect"
 
-        # Guarantee severity & priority populate for select dropdowns
-        if not patch.get("severity"):
-            patch["severity"] = "Critical" if any(term in lowered for term in ("particle", "contaminat", "discolor", "critical", "foreign")) else "High"
-        if not patch.get("priority"):
-            patch["priority"] = "High"
+        # Guarantee severity & priority populate with valid dropdown options
+        patch["severity"] = normalize_severity(patch.get("severity"), text)
+        patch["priority"] = normalize_priority(patch.get("priority"), text)
 
         # Auto-calculate expiryDate if missing but manufacturingDate is available
         if not patch.get("expiryDate"):
@@ -244,6 +274,11 @@ def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
                 patch["impactedMaterial"] = "Primary Packaging (HDPE Drum & Poly Liner)"
             elif any(k in lowered for k in ("carton", "shipper")):
                 patch["impactedMaterial"] = "Master Shipper Corrugated Carton"
+    else:
+        if patch.get("severity"):
+            patch["severity"] = normalize_severity(patch.get("severity"), text)
+        if patch.get("priority"):
+            patch["priority"] = normalize_priority(patch.get("priority"), text)
 
     return patch
 

@@ -28,11 +28,20 @@ function Field({ label, field, type = 'text', placeholder }: FieldProps) {
 
 function SelectField({ label, field, options }: { label: string; field: 'severity' | 'priority'; options: string[] }) {
   const dispatch = useAppDispatch();
-  const value = useAppSelector((s) => s.complaint.form[field]);
+  const rawValue = useAppSelector((s) => s.complaint.form[field]) || '';
+
+  const matchedOption = options.find((opt) => opt.toLowerCase() === rawValue.toLowerCase())
+    || options.find((opt) => rawValue.toLowerCase().includes(opt.toLowerCase()))
+    || (rawValue.toLowerCase().includes('critical') || rawValue.toLowerCase().includes('particle') ? 'Critical' : '')
+    || (rawValue.toLowerCase().includes('high') || rawValue.toLowerCase().includes('urgent') ? 'High' : '');
+
   return (
     <label className="field">
       <span>{label}</span>
-      <select value={value} onChange={(e) => dispatch(updateField({ field, value: e.target.value }))}>
+      <select
+        value={matchedOption}
+        onChange={(e) => dispatch(updateField({ field, value: e.target.value }))}
+      >
         <option value="">Select…</option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>

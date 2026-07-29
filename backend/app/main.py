@@ -88,7 +88,8 @@ def extract_patch(text: str) -> dict[str, str]:
             r"Customer\s*Name\s*:\s*\n?\s*([^\n\r|]+)",
             r"Customer\s*:\s*\n?\s*([^\n\r|]+)",
             r"Client\s*:\s*\n?\s*([^\n\r|]+)",
-            r"^([A-Z][A-Za-z &.-]+?)\s+(?:reported|complained)",
+            r"^([A-Z][A-Za-z &.-]+?)\s+(?:submitted|reported|complained|filed|logged|sent)",
+            r"([A-Z][A-Za-z0-9 &.-]+?\s+(?:Pharmacy|Hospital|Logistics|Distributor|Labs|Laboratories|Formulations|Pharma|Inc|Ltd|LLC))",
         ],
         "complaintSource": [
             r"Complaint\s*Source\s*:\s*\n?\s*([^\n\r]+)",
@@ -97,8 +98,8 @@ def extract_patch(text: str) -> dict[str, str]:
         "productName": [
             r"Product\s*Name(?:\s*\(API\/FDF\))?\s*:\s*\n?\s*([^\n\r]+)",
             r"Product\s*:\s*\n?\s*([^\n\r]+)",
-            r"\bin\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api)(?:\s+\d+\s*(?:mg|ml))?)\b",
-            r"(?:product(?: name)? is|for)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api)(?:\s+\d+\s*(?:mg|ml))?)\b",
+            r"(?:regarding|for|on|of|with|in)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api|solution|cream|ointment)(?:\s+\d+\s*(?:mg|ml))?)",
+            r"(?:product(?: name)? is|for)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api)(?:\s+\d+\s*(?:mg|ml))?)",
         ],
         "strengthGrade": [
             r"Product\s*Strength(?:\s*\/\s*Grade|\s*\/\s*Dosage)?\s*:\s*\n?\s*([^\n\r]+)",
@@ -107,22 +108,22 @@ def extract_patch(text: str) -> dict[str, str]:
         ],
         "batchLotNumber": [
             r"Batch\s*(?:\/\s*Lot)?\s*(?:Number|No\.?)?\s*:\s*\n?\s*([^\n\r]+)",
-            r"(?:batch|lot)\s*(?:number|no\.?)?\s*(?:is|:)?\s*([A-Za-z0-9-]{4,})",
+            r"(?:batch|lot)\s*(?:number|no\.?)?\s*(?:is|was|:)?\s*([A-Za-z0-9-]{4,})",
         ],
         "manufacturingDate": [
-            r"Manufactur(?:ing|ed)\s*Date\s*:\s*\n?\s*([^\n\r]+)",
-            r"mfg\s*date\s*:\s*\n?\s*([^\n\r]+)",
-            r"manufactur(?:ing|ed)\s+date\s*(?:is|:)?\s*([A-Za-z0-9, -]+\d{4})",
+            r"Manufactur(?:ing|ed)\s*Date\s*:\s*\n?\s*([^\n\r.,]+)",
+            r"mfg\s*date\s*:\s*\n?\s*([^\n\r.,]+)",
+            r"manufactur(?:ing|ed)\s+(?:date\s+)?(?:is|was|:)?\s*([A-Za-z]+\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4})",
         ],
         "expiryDate": [
-            r"Expir(?:y|ation)\s*Date\s*:\s*\n?\s*([^\n\r]+)",
-            r"exp\s*date\s*:\s*\n?\s*([^\n\r]+)",
-            r"expir(?:y|ation)\s+date\s*(?:is|:)?\s*([A-Za-z0-9, -]+\d{4}|Not Provided)",
+            r"Expir(?:y|ation)\s*Date\s*:\s*\n?\s*([^\n\r.,]+)",
+            r"exp\s*date\s*:\s*\n?\s*([^\n\r.,]+)",
+            r"expir(?:y|ation)\s+(?:date\s+)?(?:is|was|:)?\s*([A-Za-z]+\s+\d{4}|\d{1,2}\s+[A-Za-z]+\s+\d{4}|Not Provided)",
         ],
         "affectedQuantity": [
             r"Affected\s*Quantity\s*:\s*\n?\s*([^\n\r]+)",
             r"Quantity\s*:\s*\n?\s*([^\n\r]+)",
-            r"(?:affected\s+quantity|quantity)\s*(?:is|:)?\s*(\d+(?:\.\d+)?\s*(?:capsules|tablets|vials|kg|g|units?|bottles[^\n\r]*))",
+            r"(\d+(?:\.\d+)?\s*(?:capsules|tablets|vials|bottles|kg|g|drums|cartons|packs|units))\b",
         ],
         "originatingSite": [
             r"Originating\s*Site(?:\s*Block)?\s*:\s*\n?\s*([^\n\r]+)",
@@ -150,6 +151,10 @@ def extract_patch(text: str) -> dict[str, str]:
                 if val and val.lower() not in ("not provided", "none", "n/a", "null"):
                     patch[field] = val
                     break
+
+    # If customerName was extracted, use it as complaintSource if complaintSource is empty
+    if patch.get("customerName") and not patch.get("complaintSource"):
+        patch["complaintSource"] = patch["customerName"]
 
     defect_match = re.search(
         r"(?:Defect\s*Summary|Description\s*of\s*Complaint|Incident\s*Details|Defect\s*Summary\s*&\s*Narrative|Defect)\s*:\s*\n?\s*([^\n\r]+)",

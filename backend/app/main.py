@@ -79,7 +79,7 @@ def first_match(pattern: str, text: str, flags: int = re.IGNORECASE) -> str | No
     return match.group(1).strip(" .,\r\n") if match else None
 
 
-def extract_patch(text: str) -> dict[str, str]:
+def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
     """High-precision pharmaceutical QMS entity extractor for document tables and free-text."""
     patch: dict[str, str] = {}
 
@@ -88,26 +88,31 @@ def extract_patch(text: str) -> dict[str, str]:
             r"Customer\s*Name\s*:\s*\n?\s*([^\n\r|]+)",
             r"Customer\s*:\s*\n?\s*([^\n\r|]+)",
             r"Client\s*:\s*\n?\s*([^\n\r|]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?customer(?:\s+name)?\s+(?:to|is|as)\s+([^\n\r.]+)",
             r"^([A-Z][A-Za-z &.-]+?)\s+(?:submitted|reported|complained|filed|logged|sent)",
             r"([A-Z][A-Za-z0-9 &.-]+?\s+(?:Pharmacy|Hospital|Logistics|Distributor|Labs|Laboratories|Formulations|Pharma|Inc|Ltd|LLC))",
         ],
         "complaintSource": [
             r"Complaint\s*Source\s*:\s*\n?\s*([^\n\r]+)",
             r"Source\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?complaint\s+source\s+(?:to|is|as)\s+([^\n\r.]+)",
         ],
         "productName": [
             r"Product\s*Name(?:\s*\(API\/FDF\))?\s*:\s*\n?\s*([^\n\r]+)",
             r"Product\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?product(?:\s+name)?\s+(?:to|is|as)\s+([^\n\r.]+)",
             r"(?:regarding|for|on|of|with|in)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api|solution|cream|ointment)(?:\s+\d+\s*(?:mg|ml))?)",
             r"(?:product(?: name)? is|for)\s+([A-Z][A-Za-z0-9 -]+?(?:capsules|tablets|injection|syrup|suspension|api)(?:\s+\d+\s*(?:mg|ml))?)",
         ],
         "strengthGrade": [
             r"Product\s*Strength(?:\s*\/\s*Grade|\s*\/\s*Dosage)?\s*:\s*\n?\s*([^\n\r]+)",
             r"Strength\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?strength(?:\s*\/|\s*or)?\s*grade\s+(?:to|is|as)\s+([^\n\r.]+)",
             r"(\d+\s*(?:mg|ml)(?:\s*\/\s*\d+\s*ml)?)",
         ],
         "batchLotNumber": [
             r"Batch\s*(?:\/\s*Lot)?\s*(?:Number|No\.?)?\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?batch(?:\s+number|\s+lot)?\s+(?:to|is|as)\s+([^\n\r.]+)",
             r"(?:batch|lot)\s*(?:number|no\.?)?\s*(?:is|was|:)?\s*([A-Za-z0-9-]{4,})",
         ],
         "manufacturingDate": [
@@ -123,14 +128,17 @@ def extract_patch(text: str) -> dict[str, str]:
         "affectedQuantity": [
             r"Affected\s*Quantity\s*:\s*\n?\s*([^\n\r]+)",
             r"Quantity\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?(?:affected\s+)?quantity\s+(?:to|is|as)\s+([^\n\r.]+)",
             r"(\d+(?:\.\d+)?\s*(?:capsules|tablets|vials|bottles|kg|g|drums|cartons|packs|units))\b",
         ],
         "originatingSite": [
             r"Originating\s*Site(?:\s*Block)?\s*:\s*\n?\s*([^\n\r]+)",
             r"Site\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?site\s+(?:to|is|as)\s+([^\n\r.]+)",
         ],
         "impactedMaterial": [
             r"Impacted\s*(?:Non-Product\s*)?Material[s]?\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?material\s+(?:to|is|as)\s+([^\n\r.]+)",
         ],
         "complaintType": [
             r"Complaint\s*Type\s*:\s*\n?\s*([^\n\r]+)",
@@ -138,6 +146,14 @@ def extract_patch(text: str) -> dict[str, str]:
         "complaintDate": [
             r"Complaint\s*Date\s*:\s*\n?\s*([^\n\r]+)",
             r"Date\s*of\s*Incident\s*:\s*\n?\s*([^\n\r]+)",
+        ],
+        "severity": [
+            r"Severity\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?severity\s+(?:to|is|as)\s+(Low|Medium|High|Critical|Needs QA Review)",
+        ],
+        "priority": [
+            r"Priority\s*:\s*\n?\s*([^\n\r]+)",
+            r"(?:change|update|set|edit)\s+(?:the\s+)?priority\s+(?:to|is|as)\s+(Low|Medium|High|Urgent|Needs QA Review)",
         ],
     }
 
@@ -152,10 +168,6 @@ def extract_patch(text: str) -> dict[str, str]:
                     patch[field] = val
                     break
 
-    # If customerName was extracted, use it as complaintSource if complaintSource is empty
-    if patch.get("customerName") and not patch.get("complaintSource"):
-        patch["complaintSource"] = patch["customerName"]
-
     defect_match = re.search(
         r"(?:Defect\s*Summary|Description\s*of\s*Complaint|Incident\s*Details|Defect\s*Summary\s*&\s*Narrative|Defect)\s*:\s*\n?\s*([^\n\r]+)",
         text,
@@ -164,47 +176,51 @@ def extract_patch(text: str) -> dict[str, str]:
     if defect_match:
         patch["defectSummary"] = defect_match.group(1).strip(" .,\r\n")
 
-    # Auto-fill complaintDate with today's date if not explicitly mentioned in the complaint
-    if not patch.get("complaintDate"):
-        patch["complaintDate"] = datetime.date.today().strftime("%d %B %Y")
-
-    if not patch.get("detailedDescription"):
-        patch["detailedDescription"] = text.strip()
-
     lowered = text.lower()
-    if any(term in lowered for term in ("discolor", "foreign particle", "broken", "leak", "contamination", "syrup", "capsule")):
-        if not patch.get("complaintType"):
-            patch["complaintType"] = "Product defect"
-        if not patch.get("severity"):
-            patch["severity"] = "Critical" if any(term in lowered for term in ("contamination", "critical", "foreign particle")) else "High"
-        if not patch.get("priority"):
-            patch["priority"] = "High"
 
-    # Intelligent Site / Facility Classification
-    if not patch.get("originatingSite"):
-        site_match = re.search(r"((?:Block|Unit|Site|Facility|Line)\s+[A-Za-z0-9-]+)", text, re.IGNORECASE)
-        if site_match:
-            patch["originatingSite"] = site_match.group(1)
-        elif any(k in lowered for k in ("receipt", "warehouse", "inspection", "hub", "distributor")):
-            patch["originatingSite"] = "Central Warehouse & Receiving"
-        elif any(k in lowered for k in ("blister", "filling", "packaging", "bottle", "carton")):
-            patch["originatingSite"] = "Block A (Finished Packaging Line)"
-        elif any(k in lowered for k in ("synthesis", "api", "reaction", "reactor", "bulk")):
-            patch["originatingSite"] = "Block B (Bulk API Manufacturing)"
+    if not is_update:
+        if patch.get("customerName") and not patch.get("complaintSource"):
+            patch["complaintSource"] = patch["customerName"]
 
-    # Intelligent Material Impact Classification
-    if not patch.get("impactedMaterial"):
-        mat_match = re.search(r"((?:hdpe|blister|carton|liner|drum|cap|seal|poly|primary|secondary)\s+(?:pack|packaging|bottle|drum|liner|seal|carton)[s]?)", text, re.IGNORECASE)
-        if mat_match:
-            patch["impactedMaterial"] = mat_match.group(1)
-        elif "blister" in lowered:
-            patch["impactedMaterial"] = "Primary Blister Pack (Alu-Alu / PVC Packaging)"
-        elif any(k in lowered for k in ("bottle", "cap", "seal", "torque")):
-            patch["impactedMaterial"] = "HDPE Container & Cap Seal"
-        elif any(k in lowered for k in ("drum", "liner")):
-            patch["impactedMaterial"] = "HDPE Drum & Polyethylene Liner"
-        elif any(k in lowered for k in ("carton", "shipper")):
-            patch["impactedMaterial"] = "Master Shipper Corrugated Carton"
+        if not patch.get("complaintDate"):
+            patch["complaintDate"] = datetime.date.today().strftime("%d %B %Y")
+
+        if not patch.get("detailedDescription"):
+            patch["detailedDescription"] = text.strip()
+
+        if any(term in lowered for term in ("discolor", "foreign particle", "broken", "leak", "contamination", "syrup", "capsule")):
+            if not patch.get("complaintType"):
+                patch["complaintType"] = "Product defect"
+            if not patch.get("severity"):
+                patch["severity"] = "Critical" if any(term in lowered for term in ("contamination", "critical", "foreign particle")) else "High"
+            if not patch.get("priority"):
+                patch["priority"] = "High"
+
+        # Intelligent Site / Facility Classification for initial intake
+        if not patch.get("originatingSite"):
+            site_match = re.search(r"((?:Block|Unit|Site|Facility|Line)\s+[A-Za-z0-9-]+)", text, re.IGNORECASE)
+            if site_match:
+                patch["originatingSite"] = site_match.group(1)
+            elif any(k in lowered for k in ("receipt", "warehouse", "inspection", "hub", "distributor")):
+                patch["originatingSite"] = "Central Warehouse & Receiving"
+            elif any(k in lowered for k in ("blister", "filling", "packaging", "bottle", "carton")):
+                patch["originatingSite"] = "Block A (Finished Packaging Line)"
+            elif any(k in lowered for k in ("synthesis", "api", "reaction", "reactor", "bulk")):
+                patch["originatingSite"] = "Block B (Bulk API Manufacturing)"
+
+        # Intelligent Material Impact Classification for initial intake
+        if not patch.get("impactedMaterial"):
+            mat_match = re.search(r"((?:hdpe|blister|carton|liner|drum|cap|seal|poly|primary|secondary)\s+(?:pack|packaging|bottle|drum|liner|seal|carton)[s]?)", text, re.IGNORECASE)
+            if mat_match:
+                patch["impactedMaterial"] = mat_match.group(1)
+            elif "blister" in lowered:
+                patch["impactedMaterial"] = "Primary Blister Pack (Alu-Alu / PVC Packaging)"
+            elif any(k in lowered for k in ("bottle", "cap", "seal", "torque")):
+                patch["impactedMaterial"] = "HDPE Container & Cap Seal"
+            elif any(k in lowered for k in ("drum", "liner")):
+                patch["impactedMaterial"] = "HDPE Drum & Polyethylene Liner"
+            elif any(k in lowered for k in ("carton", "shipper")):
+                patch["impactedMaterial"] = "Master Shipper Corrugated Carton"
 
     return patch
 
@@ -273,12 +289,16 @@ def health() -> dict[str, str | bool]:
 def process_copilot(request: CopilotRequest) -> CopilotResponse:
     from .agent import run_intake
 
+    current_dict = request.current_form.model_dump()
+    is_update = bool(current_dict and any(v for v in current_dict.values() if v))
+
     try:
-        result = run_intake(request.text, request.current_form.model_dump())
+        result = run_intake(request.text, current_dict)
     except Exception as err:
-        patch = extract_patch(request.text)
+        patch = extract_patch(request.text, is_update=is_update)
+        updated_fields_str = ", ".join(patch.keys()) if patch else "form"
         result = {
-            "summary": "Extracted complaint details into the form.",
+            "summary": f"Updated {updated_fields_str} in the form." if is_update else "Extracted complaint details into the form.",
             "patch": patch,
             "missing_fields": missing_fields(patch),
             "risk": "High - Quality complaint requiring QA review",
@@ -321,7 +341,7 @@ async def process_uploaded_document(
     try:
         result = run_intake(extracted_text, {})
     except Exception:
-        patch = extract_patch(extracted_text)
+        patch = extract_patch(extracted_text, is_update=False)
         result = {
             "summary": "Extracted complaint document details into the form.",
             "patch": patch,

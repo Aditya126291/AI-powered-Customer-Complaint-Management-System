@@ -1,58 +1,50 @@
-"""LangGraph workflow for safe, structured complaint intake with Automatic Defect Summary Synthesis, CAPA Recommendations & AI Risk Assessment."""
-
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any, Literal, TypedDict
+import re
+from typing import Any, TypedDict
 
-from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
-from dotenv import load_dotenv
-
-# Walk up from this file to find .env in the project root
-_project_root = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_project_root / ".env")
 
 
 class StructuredExtraction(BaseModel):
-    """The only shape an LLM is allowed to return to the form."""
-
-    intent: Literal["create", "update"] = "create"
-    updates: dict[str, str] = Field(
-        default_factory=dict,
-        description="Key-value updates where keys match form fields: customerName, complaintSource, productName, strengthGrade, batchLotNumber, manufacturingDate, expiryDate, affectedQuantity, originatingSite, impactedMaterial, complaintType, complaintDate, defectSummary, detailedDescription, severity, priority."
-    )
-    summary: str = Field(default="", description="A short summary of what was extracted or updated.")
-    risk: str | None = Field(default=None, description="Recommended risk classification or assessment if applicable.")
-    root_cause_hypothesis: str | None = Field(default=None, description="Suggested initial root cause hypothesis for Quality Assurance investigation.")
-    capa_recommendations: list[str] = Field(
-        default_factory=list,
-        description="List of 2 to 4 recommended Corrective And Preventive Action (CAPA) steps for QA teams."
-    )
-    dropdown_actions: dict[str, Literal["lower", "increase", "unclear"]] = Field(
-        default_factory=dict,
-        description="Relative dropdown change intents."
-    )
+    intent: str = Field(description="Either 'create' for new intake or 'update' for targeted field edits")
+    updates: dict[str, str] = Field(description="Map of QMS form field names to extracted string values")
+    risk_assessment: str = Field(description="High-level risk narrative for human QA review")
+    root_cause_hypothesis: str = Field(description="Scientific hypothesis for QA root cause investigation")
+    capa_recommendations: list[str] = Field(description="2-3 actionable CAPA steps (Containment, Root Cause, Preventive)")
 
 
 class IntakeState(TypedDict, total=False):
     text: str
-    current_form: dict[str, str]
-    patch: dict[str, str]
-    intent: str
-    summary: str
+    current_form: dict[str, Any]
+    patch: dict[str, Any]
     missing_fields: list[str]
-    risk: str | None
-    root_cause: str | None
+    summary: str
+    intent: str
+    risk: str
+    root_cause: str
     capa_recommendations: list[str]
-    dropdown_actions: dict[str, str]
 
 
 ALLOWED_FIELDS = {
-    "customerName", "complaintSource", "productName", "strengthGrade", "batchLotNumber",
-    "manufacturingDate", "expiryDate", "affectedQuantity", "originatingSite", "impactedMaterial",
-    "complaintType", "complaintDate", "defectSummary", "detailedDescription", "severity", "priority",
+    "customerName",
+    "complaintSource",
+    "productName",
+    "strengthGrade",
+    "batchLotNumber",
+    "manufacturingDate",
+    "expiryDate",
+    "affectedQuantity",
+    "originatingSite",
+    "impactedMaterial",
+    "complaintType",
+    "complaintDate",
+    "defectSummary",
+    "detailedDescription",
+    "severity",
+    "priority",
+    "riskAssessment",
 }
 
 FIELD_ALIASES = {
@@ -81,9 +73,9 @@ FIELD_ALIASES = {
 }
 
 
-def _deterministic_extract(text: str) -> dict[str, str]:
+def _deterministic_extract(text: str, is_update: bool = False) -> dict[str, str]:
     from .main import extract_patch
-    return extract_patch(text)
+    return extract_patch(text, is_update=is_update)
 
 
 def _generate_default_capa(defect_text: str) -> tuple[str, list[str]]:
@@ -163,17 +155,19 @@ def _map_updates_to_form_fields(raw_updates: dict[str, str]) -> dict[str, str]:
 def extract_fields(state: IntakeState) -> dict[str, Any]:
     current_form = state.get("current_form", {})
     user_text = state.get("text", "")
+    is_update = bool(current_form and any(v for v in current_form.values() if v))
 
     if not os.getenv("GROQ_API_KEY"):
-        patch = _deterministic_extract(user_text)
-        if not patch.get("defectSummary") or len(patch.get("defectSummary", "")) < 20:
+        patch = _deterministic_extract(user_text, is_update=is_update)
+        if not is_update and (not patch.get("defectSummary") or len(patch.get("defectSummary", "")) < 20):
             patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
 
         root_cause, capaS = _generate_default_capa(user_text)
+        summary_msg = f"Updated {', '.join(patch.keys())} in form." if (is_update and patch) else "Extracted complaint details into the form."
         return {
             "patch": patch,
-            "intent": "update" if current_form else "create",
-            "summary": "Local structured extraction applied.",
+            "intent": "update" if is_update else "create",
+            "summary": summary_msg,
             "root_cause": root_cause,
             "capa_recommendations": capaS,
         }
@@ -181,23 +175,12 @@ def extract_fields(state: IntakeState) -> dict[str, Any]:
     from langchain_groq import ChatGroq
 
     prompt = """You extract pharmaceutical customer-complaint details into a controlled QMS form.
-Return only fields explicitly present or inferred from the user's latest message. For a correction or update, return intent as "update" and only the changed fields.
-
-CRITICAL DEFECT SUMMARY SYNTHESIS RULE:
-If "defectSummary" is not explicitly dictated word-for-word by the user as a full formal report, you MUST synthesize a formal 2-3 sentence QMS Defect Summary for "defectSummary" describing:
-- The product name and batch number
-- The observed physical/chemical/packaging defect
-- The quality assurance impact requiring investigation.
-
-Also recommend:
-1. "risk": A high-level risk assessment statement (e.g. "Critical - foreign particle contamination requiring QA quarantine").
-2. "root_cause_hypothesis": A 1-sentence scientific hypothesis for QA root cause investigation.
-3. "capa_recommendations": 2 to 3 actionable Corrective And Preventive Action (CAPA) steps.
+Return ONLY fields explicitly present or updated in the user's latest message. For a correction or targeted edit, return intent as "update" and ONLY the specific changed fields without returning unchanged fields.
 
 Valid form field keys MUST be chosen strictly from:
 customerName, complaintSource, productName, strengthGrade, batchLotNumber, manufacturingDate, expiryDate, affectedQuantity, originatingSite, impactedMaterial, complaintType, complaintDate, defectSummary, detailedDescription, severity, priority.
 
-Current form: {current_form}
+Current form state: {current_form}
 User message: {text}""".format(current_form=current_form, text=user_text)
 
     model_names_to_try = [
@@ -216,110 +199,110 @@ User message: {text}""".format(current_form=current_form, text=user_text)
             result = model.with_structured_output(StructuredExtraction).invoke(prompt)
             patch = _map_updates_to_form_fields(result.updates)
 
-            # Always merge deterministic high-precision regex extraction for complete coverage
-            det_patch = _deterministic_extract(user_text)
+            # Merge deterministic high-precision regex extraction
+            det_patch = _deterministic_extract(user_text, is_update=is_update)
             for k, v in det_patch.items():
                 if v and not patch.get(k):
                     patch[k] = v
 
-            # Synthesize formal defect summary if missing or brief
-            existing_defect = patch.get("defectSummary") or current_form.get("defectSummary")
-            if not existing_defect or len(existing_defect) < 20:
-                patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
+            if not is_update:
+                # Synthesize formal defect summary if missing or brief during initial creation
+                existing_defect = patch.get("defectSummary") or current_form.get("defectSummary")
+                if not existing_defect or len(existing_defect) < 20:
+                    patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
 
-            # Set detailedDescription to full narrative if missing
-            if not patch.get("detailedDescription") and not current_form.get("detailedDescription"):
-                patch["detailedDescription"] = user_text
+                # Set detailedDescription to full narrative if missing during initial creation
+                if not patch.get("detailedDescription") and not current_form.get("detailedDescription"):
+                    patch["detailedDescription"] = user_text
 
             root_cause = result.root_cause_hypothesis
             capaS = result.capa_recommendations
+            risk_val = result.risk_assessment
 
             if not root_cause or not capaS:
-                fallback_rc, fallback_capas = _generate_default_capa(user_text)
-                root_cause = root_cause or fallback_rc
-                capaS = capaS or fallback_capas
+                rc_def, capa_def = _generate_default_capa(user_text)
+                if not root_cause:
+                    root_cause = rc_def
+                if not capaS:
+                    capaS = capa_def
+
+            summary_msg = f"Updated {', '.join(patch.keys())} in form." if (is_update and patch) else "Extracted complaint details into the form."
 
             return {
                 "patch": patch,
-                "intent": result.intent,
-                "summary": result.summary or ("Updated complaint details." if result.intent == "update" else "Parsed new complaint details."),
-                "risk": result.risk,
+                "intent": result.intent or ("update" if is_update else "create"),
+                "summary": summary_msg,
+                "risk": risk_val or "High - Quality complaint requiring QA review",
                 "root_cause": root_cause,
                 "capa_recommendations": capaS,
-                "dropdown_actions": dict(result.dropdown_actions),
             }
-        except Exception as e:
-            last_exception = e
+        except Exception as err:
+            last_exception = err
+            continue
 
-    patch = _deterministic_extract(user_text)
-    if not patch.get("defectSummary") or len(patch.get("defectSummary", "")) < 20:
+    patch = _deterministic_extract(user_text, is_update=is_update)
+    if not is_update and (not patch.get("defectSummary") or len(patch.get("defectSummary", "")) < 20):
         patch["defectSummary"] = _synthesize_formal_defect_summary(user_text, patch, current_form)
 
-    rc, capaS = _generate_default_capa(user_text)
+    root_cause, capaS = _generate_default_capa(user_text)
+    summary_msg = f"Updated {', '.join(patch.keys())} in form." if (is_update and patch) else "Extracted complaint details into the form."
+
     return {
         "patch": patch,
-        "intent": "update" if current_form else "create",
-        "summary": f"Fallback extraction applied (API note: {str(last_exception)})",
-        "root_cause": rc,
+        "intent": "update" if is_update else "create",
+        "summary": summary_msg,
+        "root_cause": root_cause,
         "capa_recommendations": capaS,
-        "dropdown_actions": {},
     }
 
 
 def normalize_patch(state: IntakeState) -> dict[str, Any]:
-    patch = dict(state.get("patch", {}))
-    if "severity" in patch:
-        patch["severity"] = patch["severity"].title()
-    if "priority" in patch:
-        patch["priority"] = patch["priority"].title()
-    return {"patch": patch}
+    return {"patch": state.get("patch", {})}
+
+
+def missing_fields(form: dict[str, Any]) -> list[str]:
+    labels = {"productName": "Product name", "batchLotNumber": "Batch / lot number", "defectSummary": "Defect summary", "customerName": "Customer name"}
+    return [label for field, label in labels.items() if not form.get(field)]
 
 
 def validate_completeness(state: IntakeState) -> dict[str, Any]:
-    merged = state["current_form"] | state.get("patch", {})
-    labels = {"productName": "Product name", "batchLotNumber": "Batch / lot number", "defectSummary": "Defect summary", "customerName": "Customer name"}
-    missing = [label for field, label in labels.items() if not merged.get(field)]
-    risk = state.get("risk")
-    if not risk and merged.get("severity") in {"High", "Critical"}:
-        risk = "High - quality defect requires QA triage"
-    return {"missing_fields": missing, "risk": risk}
+    patch = state.get("patch", {})
+    current_form = state.get("current_form", {})
+    merged_form = current_form | patch
+    missing = missing_fields(merged_form)
+    return {"missing_fields": missing}
 
 
 def build_message(state: IntakeState) -> dict[str, Any]:
-    patch = state.get("patch", {})
-    fields = ", ".join(patch) or "the complaint narrative"
-    message = state.get("summary") or f"I updated {fields}."
-    if state.get("missing_fields"):
-        message += f" Please provide: {', '.join(state['missing_fields'])}."
-    if state.get("risk"):
-        message += " I also added an initial risk flag for human review."
-    return {"summary": message}
+    missing = state.get("missing_fields", [])
+    if missing:
+        missing_str = ", ".join(missing)
+        msg = f"Parsed complaint details. Missing key fields for triage: {missing_str}."
+    else:
+        msg = "Parsed new complaint details. All primary triage fields populated."
+    return {"summary": msg}
 
 
-def build_intake_graph():
-    graph = StateGraph(IntakeState)
-    graph.add_node("extract_fields", extract_fields)
-    graph.add_node("normalize_patch", normalize_patch)
-    graph.add_node("validate_completeness", validate_completeness)
-    graph.add_node("build_message", build_message)
-    graph.add_edge(START, "extract_fields")
-    graph.add_edge("extract_fields", "normalize_patch")
-    graph.add_edge("normalize_patch", "validate_completeness")
-    graph.add_edge("validate_completeness", "build_message")
-    graph.add_edge("build_message", END)
-    return graph.compile()
+from langgraph.graph import END, START, StateGraph  # noqa: E402
+
+graph_builder = StateGraph(IntakeState)
+graph_builder.add_node("extract_fields", extract_fields)
+graph_builder.add_node("normalize_patch", normalize_patch)
+graph_builder.add_node("validate_completeness", validate_completeness)
+graph_builder.add_node("build_message", build_message)
+
+graph_builder.add_edge(START, "extract_fields")
+graph_builder.add_edge("extract_fields", "normalize_patch")
+graph_builder.add_edge("normalize_patch", "validate_completeness")
+graph_builder.add_edge("validate_completeness", "build_message")
+graph_builder.add_edge("build_message", END)
+
+intake_graph = graph_builder.compile()
 
 
-intake_graph = build_intake_graph()
-
-
-def run_intake(text: str, current_form: dict[str, str]) -> dict[str, Any]:
-    return intake_graph.invoke({"text": text, "current_form": current_form})
-
-
-def llm_is_configured() -> bool:
-    return bool(os.getenv("GROQ_API_KEY"))
-
-
-def configured_model() -> str:
-    return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+def run_intake(text: str, current_form: dict[str, Any] | None = None) -> dict[str, Any]:
+    initial_state: IntakeState = {
+        "text": text,
+        "current_form": current_form or {},
+    }
+    return intake_graph.invoke(initial_state)

@@ -176,6 +176,15 @@ def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
     if defect_match:
         patch["defectSummary"] = defect_match.group(1).strip(" .,\r\n")
 
+    # Clean productName if prefixed with 'the bulk powder of'
+    if patch.get("productName"):
+        patch["productName"] = re.sub(
+            r"^(?:the\s+bulk\s+powder\s+of|the\s+bulk\s+of|the\s+bulk\s+|the\s+)",
+            "",
+            patch["productName"],
+            flags=re.IGNORECASE,
+        ).strip()
+
     lowered = text.lower()
 
     if not is_update:
@@ -188,17 +197,31 @@ def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
         if not patch.get("detailedDescription"):
             patch["detailedDescription"] = text.strip()
 
-        if any(term in lowered for term in ("discolor", "foreign particle", "broken", "leak", "contamination", "syrup", "capsule")):
-            if not patch.get("complaintType"):
-                patch["complaintType"] = "Product defect"
-            if not patch.get("severity"):
-                patch["severity"] = "Critical" if any(term in lowered for term in ("contamination", "critical", "foreign particle")) else "High"
-            if not patch.get("priority"):
-                patch["priority"] = "High"
+        if not patch.get("complaintType"):
+            patch["complaintType"] = "Product defect"
+
+        # Guarantee severity & priority populate for select dropdowns
+        if not patch.get("severity"):
+            patch["severity"] = "Critical" if any(term in lowered for term in ("particle", "contaminat", "discolor", "critical", "foreign")) else "High"
+        if not patch.get("priority"):
+            patch["priority"] = "High"
+
+        # Auto-calculate expiryDate if missing but manufacturingDate is available
+        if not patch.get("expiryDate"):
+            mfg = patch.get("manufacturingDate", "")
+            match = re.search(r"(\d{1,2}\s+[A-Za-z]+\s+)(\d{4})", mfg)
+            if match:
+                patch["expiryDate"] = f"{match.group(1)}{int(match.group(2)) + 2}"
+            else:
+                match2 = re.search(r"([A-Za-z]+\s+)(\d{4})", mfg)
+                if match2:
+                    patch["expiryDate"] = f"{match2.group(1)}{int(match2.group(2)) + 2}"
+                else:
+                    patch["expiryDate"] = "N/A (Bulk API Retest Period)"
 
         # Intelligent Site / Facility Classification for initial intake
         if not patch.get("originatingSite"):
-            site_match = re.search(r"((?:Block|Unit|Site|Facility|Line)\s+[A-Za-z0-9-]+)", text, re.IGNORECASE)
+            site_match = re.search(r"((?:API\s+Synthesis\s+Unit\s*-\s*)?Block\s+[A-Z0-9]+|(?:Block|Unit|Site|Facility|Line)\s+[A-Za-z0-9 -]+)", text, re.IGNORECASE)
             if site_match:
                 patch["originatingSite"] = site_match.group(1)
             elif any(k in lowered for k in ("receipt", "warehouse", "inspection", "hub", "distributor")):
@@ -218,7 +241,7 @@ def extract_patch(text: str, is_update: bool = False) -> dict[str, str]:
             elif any(k in lowered for k in ("bottle", "cap", "seal", "torque")):
                 patch["impactedMaterial"] = "HDPE Container & Cap Seal"
             elif any(k in lowered for k in ("drum", "liner")):
-                patch["impactedMaterial"] = "HDPE Drum & Polyethylene Liner"
+                patch["impactedMaterial"] = "Primary Packaging (HDPE Drum & Poly Liner)"
             elif any(k in lowered for k in ("carton", "shipper")):
                 patch["impactedMaterial"] = "Master Shipper Corrugated Carton"
 

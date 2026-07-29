@@ -13,8 +13,21 @@ fieldset { border: 0; padding: 0; margin: 22px 0 0; } legend { color: #647086; f
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; }.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }.field span { font-size: 12px; font-weight: 600; color: #39465a; }
 input, select, textarea { border: 1px solid #d8dfeb; border-radius: 8px; padding: 10px 11px; color: #27364d; background: #fff; outline: none; width: 100%; transition: border .15s, box-shadow .15s; } input::placeholder, textarea::placeholder { color: #a6afbf; } input:focus, select:focus, textarea:focus { border-color: #5d52e8; box-shadow: 0 0 0 3px rgba(93,82,232,.11); }.ai-updated { border-color: #8e84ff; background: #fbfaff; } textarea { min-height: 86px; resize: vertical; }.field-wide { grid-column: 1 / -1; }
 .form-actions { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #edf0f5; margin-top: 24px; padding-top: 20px; }.primary, .secondary, .send { border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 600; font-size: 13px; }.primary, .send { background: #5146dd; color: white; }.primary:hover, .send:hover { background: #4338c9; }.secondary { background: #fff; border: 1px solid #dbe1eb; color: #536177; }
-.copilot-card { overflow: hidden; position: sticky; top: 24px; }.copilot-header { padding: 23px; align-items: center; }.copilot-header > div:nth-child(2) { flex: 1; }.sparkle { color: #5146dd; font-size: 24px; }.online { width: 10px; height: 10px; background: #34c26d; border-radius: 50%; }.upload-zone { margin: 18px 22px; border: 1px dashed #b9c3d4; border-radius: 10px; padding: 22px; text-align: center; color: #59667a; display: flex; flex-direction: column; gap: 5px; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }.upload-zone:hover, .upload-zone.dragging { background: #f4f2ff; border-color: #675ce8; }.upload-zone strong { color: #38465b; }.upload-zone small { color: #8d98a9; margin-top: 5px; }.file-input { display: none; }
-.chat-log { min-height: 330px; max-height: 430px; overflow-y: auto; background: #fafbfe; border-top: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }.message { max-width: 92%; white-space: pre-wrap; line-height: 1.48; font-size: 14px; padding: 13px 14px; border-radius: 11px; }.message.assistant { background: #fff; border: 1px solid #e5e9f1; color: #3a465a; align-self: flex-start; }.message.user { background: #5146dd; color: white; align-self: flex-end; border-bottom-right-radius: 3px; }.typing { color: #747f91; }
+.copilot-card { position: sticky; top: 24px; max-height: calc(100vh - 48px); display: flex; flex-direction: column; overflow: hidden; }
+.copilot-header { padding: 18px 22px; align-items: center; flex-shrink: 0; }
+.copilot-header > div:nth-child(2) { flex: 1; }
+.sparkle { color: #5146dd; font-size: 24px; }
+.online { width: 10px; height: 10px; background: #34c26d; border-radius: 50%; }
+.upload-zone { margin: 12px 18px; border: 1px dashed #b9c3d4; border-radius: 10px; padding: 14px; text-align: center; color: #59667a; display: flex; flex-direction: column; gap: 4px; font-size: 12px; cursor: pointer; transition: background .15s, border-color .15s; flex-shrink: 0; }
+.upload-zone:hover, .upload-zone.dragging { background: #f4f2ff; border-color: #675ce8; }
+.upload-zone strong { color: #38465b; }
+.upload-zone small { color: #8d98a9; margin-top: 2px; }
+.file-input { display: none; }
+.chat-log { flex: 1 1 auto; min-height: 160px; overflow-y: auto; background: #fafbfe; border-top: 1px solid #edf0f5; border-bottom: 1px solid #edf0f5; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.message { max-width: 92%; white-space: pre-wrap; line-height: 1.48; font-size: 13px; padding: 11px 13px; border-radius: 11px; }
+.message.assistant { background: #fff; border: 1px solid #e5e9f1; color: #3a465a; align-self: flex-start; }
+.message.user { background: #5146dd; color: white; align-self: flex-end; border-bottom-right-radius: 3px; }
+.typing { color: #747f91; }
 .insight-panel { margin: 14px 22px 0; padding: 12px 14px; border-left: 4px solid #6366f1; border-radius: 8px; background: #eef2ff; color: #3730a3; font-size: 12px; display: flex; flex-direction: column; gap: 8px; }
 .insight-section { display: flex; flex-direction: column; gap: 3px; }
 .insight-section strong { color: #312e81; font-weight: 700; }

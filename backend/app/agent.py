@@ -7,6 +7,14 @@ from typing import Any, TypedDict
 from pydantic import BaseModel, Field
 
 
+def llm_is_configured() -> bool:
+    return bool(os.getenv("GROQ_API_KEY"))
+
+
+def configured_model() -> str:
+    return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+
 class StructuredExtraction(BaseModel):
     intent: str = Field(description="Either 'create' for new intake or 'update' for targeted field edits")
     updates: dict[str, str] = Field(description="Map of QMS form field names to extracted string values")

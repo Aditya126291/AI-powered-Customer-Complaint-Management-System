@@ -180,6 +180,32 @@ def extract_patch(text: str) -> dict[str, str]:
         if not patch.get("priority"):
             patch["priority"] = "High"
 
+    # Intelligent Site / Facility Classification
+    if not patch.get("originatingSite"):
+        site_match = re.search(r"((?:Block|Unit|Site|Facility|Line)\s+[A-Za-z0-9-]+)", text, re.IGNORECASE)
+        if site_match:
+            patch["originatingSite"] = site_match.group(1)
+        elif any(k in lowered for k in ("receipt", "warehouse", "inspection", "hub", "distributor")):
+            patch["originatingSite"] = "Central Warehouse & Receiving"
+        elif any(k in lowered for k in ("blister", "filling", "packaging", "bottle", "carton")):
+            patch["originatingSite"] = "Block A (Finished Packaging Line)"
+        elif any(k in lowered for k in ("synthesis", "api", "reaction", "reactor", "bulk")):
+            patch["originatingSite"] = "Block B (Bulk API Manufacturing)"
+
+    # Intelligent Material Impact Classification
+    if not patch.get("impactedMaterial"):
+        mat_match = re.search(r"((?:hdpe|blister|carton|liner|drum|cap|seal|poly|primary|secondary)\s+(?:pack|packaging|bottle|drum|liner|seal|carton)[s]?)", text, re.IGNORECASE)
+        if mat_match:
+            patch["impactedMaterial"] = mat_match.group(1)
+        elif "blister" in lowered:
+            patch["impactedMaterial"] = "Primary Blister Pack (Alu-Alu / PVC Packaging)"
+        elif any(k in lowered for k in ("bottle", "cap", "seal", "torque")):
+            patch["impactedMaterial"] = "HDPE Container & Cap Seal"
+        elif any(k in lowered for k in ("drum", "liner")):
+            patch["impactedMaterial"] = "HDPE Drum & Polyethylene Liner"
+        elif any(k in lowered for k in ("carton", "shipper")):
+            patch["impactedMaterial"] = "Master Shipper Corrugated Carton"
+
     return patch
 
 

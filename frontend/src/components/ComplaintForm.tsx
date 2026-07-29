@@ -2,7 +2,7 @@ import { useEffect, useState, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../app/hooks';
 import { markSaved, resetForm, updateField } from '../features/complaint/complaintSlice';
 import { commitComplaintToDb, fetchSavedComplaints, updateSavedComplaintInDb } from '../features/copilot/api';
-import { addMessage, clearCopilotState } from '../features/copilot/copilotSlice';
+import { addMessage } from '../features/copilot/copilotSlice';
 import type { ComplaintForm as ComplaintFormType } from '../features/complaint/types';
 import { SavedComplaintsModal } from './SavedComplaintsModal';
 
@@ -66,18 +66,6 @@ export function ComplaintForm() {
     void refreshCount();
   }, []);
 
-  // Auto-sync edits to database if record has already been saved and user is still editing
-  useEffect(() => {
-    if (activeSavedDbId && status === 'Saved') {
-      const timer = setTimeout(() => {
-        void updateSavedComplaintInDb(activeSavedDbId, form, risk).then(() => {
-          void refreshCount();
-        });
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [form, activeSavedDbId, status, risk]);
-
   const handleSaveOrUpdate = async () => {
     const isFormEmpty = Object.values(form).every((v) => !v || v.trim() === '');
     if (isFormEmpty) {
@@ -93,18 +81,20 @@ export function ComplaintForm() {
 
     try {
       if (activeSavedDbId) {
-        // Update existing record
+        // Updating an existing record loaded from Saved Complaints ledger
         const updatedRecord = await updateSavedComplaintInDb(activeSavedDbId, form, risk);
         void refreshCount();
         dispatch(
           addMessage({
             id: crypto.randomUUID(),
             role: 'assistant',
-            text: `📝 Updated Record No. ${updatedRecord.complaintNumber} in Database! Edits reflected in Saved Complaints.`,
+            text: `📝 Record No. ${updatedRecord.complaintNumber} updated successfully in QMS Database!`,
           })
         );
+        // Reset form for next intake after update
+        dispatch(resetForm());
       } else {
-        // Commit new record
+        // Submitting new complaint record
         const savedRecord = await commitComplaintToDb(form, risk);
         void refreshCount();
 
@@ -112,15 +102,16 @@ export function ComplaintForm() {
           ? `${savedRecord.productName}${savedRecord.batchLotNumber ? ` (Batch: ${savedRecord.batchLotNumber})` : ''}`
           : 'Customer complaint';
 
-        dispatch(markSaved({ id: savedRecord.id, complaintNumber: savedRecord.complaintNumber }));
-
         dispatch(
           addMessage({
             id: crypto.randomUUID(),
             role: 'assistant',
-            text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber}.\n\nFurther edits will auto-sync to this record until you click "File another complaint".`,
+            text: `✅ Saved to QMS Database! ${productInfo} assigned Record No. ${savedRecord.complaintNumber}.\n\nThe form has been reset for new complaint intake. You can view or edit saved complaints anytime in 📁 Saved Complaints.`,
           })
         );
+
+        // Reset form cleanly so user can log the next complaint immediately
+        dispatch(resetForm());
       }
     } catch (error) {
       dispatch(
@@ -134,7 +125,6 @@ export function ComplaintForm() {
   };
 
   const handleReset = () => {
-    dispatch(clearCopilotState());
     dispatch(resetForm());
     dispatch(
       addMessage({
@@ -157,7 +147,7 @@ export function ComplaintForm() {
             📁 Saved Complaints ({savedCount})
           </button>
           <span className={`status-pill ${status === 'Saved' ? 'status-saved' : ''}`}>
-            {status === 'Saved' ? `Saved (${lastSavedNumber})` : status}
+            {status === 'Saved' ? `Editing (${lastSavedNumber})` : status}
           </span>
         </div>
       </header>
@@ -183,7 +173,7 @@ export function ComplaintForm() {
 
       <FormSection title="4. Complaint details">
         <Field label="Complaint Type" field="complaintType" placeholder="e.g., Product defect" />
-        <Field label="Complaint Date" field="complaintDate" placeholder="e.g., 28 July 2026" />
+        <Field label="Complaint Date" field="complaintDate" placeholder="e.g., 29 July 2026" />
         <label className="field field-wide">
           <span>Structured Defect Summary</span>
           <textarea
@@ -202,7 +192,7 @@ export function ComplaintForm() {
       <div className="form-actions">
         <button className="secondary" onClick={handleReset}>↻ Reset form</button>
         <button className="primary" onClick={() => void handleSaveOrUpdate()}>
-          {status === 'Saved' ? '✓ Update saved complaint' : '▣ Save complaint'}
+          {status === 'Saved' ? '✓ Update saved record' : '▣ Save complaint'}
         </button>
       </div>
 

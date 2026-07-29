@@ -164,6 +164,10 @@ def extract_patch(text: str) -> dict[str, str]:
     if defect_match:
         patch["defectSummary"] = defect_match.group(1).strip(" .,\r\n")
 
+    # Auto-fill complaintDate with today's date if not explicitly mentioned in the complaint
+    if not patch.get("complaintDate"):
+        patch["complaintDate"] = datetime.date.today().strftime("%d %B %Y")
+
     if not patch.get("detailedDescription"):
         patch["detailedDescription"] = text.strip()
 
